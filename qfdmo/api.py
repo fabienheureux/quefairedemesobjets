@@ -77,8 +77,6 @@ class ActeurSchema(ModelSchema):
     )
     distance: Optional[float] = None
 
-    # (..., description="Distance en mètres")
-
     @staticmethod
     def resolve_distance(obj):
         if not obj.distance:
