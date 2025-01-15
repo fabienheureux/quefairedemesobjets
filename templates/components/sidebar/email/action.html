@@ -1,0 +1,23 @@
+{% extends "../action.html" %}
+
+{% block icon %}
+{% include "./icon.html" %}
+{% endblock icon %}
+
+{% block button_text %}
+Nous contacter
+{% endblock button_text %}
+
+{% block modal_title %}
+Nous contacter
+{% endblock modal_title %}
+
+{% block modal_content %}
+Formulaire de contact
+{% endblock modal_content %}
+
+{% block modal_wrapper_for_id %}
+    {% with id="nous-contacter" %}
+    {{ block.super }}
+    {% endwith %}
+{% endblock modal_wrapper_for_id %}

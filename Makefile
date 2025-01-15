@@ -8,6 +8,7 @@ endif
 PYTHON := .venv/bin/python
 DJANGO_ADMIN := $(PYTHON) manage.py
 PYTEST := $(PYTHON) -m pytest
+DB_URL := postgres://qfdmo:qfdmo@localhost:6543/qfdmo# pragma: allowlist secret
 
 # Makefile config
 .PHONY: check
@@ -62,6 +63,12 @@ run-django:
 	rm -rf .parcel-cache
 	honcho start -f Procfile.dev
 
+run-all:
+	docker compose --profile airflow up -d
+	rm -rf .parcel-cache
+	$(DJANGO_ADMIN) runserver 0.0.0.0:8000
+	npm run watch
+
 # Local django operations
 .PHONY: migrate
 migrate:
@@ -86,7 +93,15 @@ createsuperuser:
 
 .PHONY: seed-database
 seed-database:
-	$(DJANGO_ADMIN) loaddata categories actions acteur_services acteur_types
+	$(DJANGO_ADMIN) loaddata categories actions acteur_services acteur_types acteurs objets
+
+.PHONY: drop-db
+drop-db:
+	docker compose exec lvao-db dropdb -f -i -U qfdmo -e qfdmo
+
+.PHONY: create-db
+create-db:
+	docker compose exec lvao-db createdb -U qfdmo -e qfdmo
 
 .PHONY: restore-prod
 restore-prod:
@@ -131,3 +146,18 @@ extract-dsfr:
 	$(PYTHON) ./dsfr_hacks/extract_dsfr_colors.py
 	$(PYTHON) ./dsfr_hacks/extract_used_colors.py
 	$(PYTHON) ./dsfr_hacks/extract_used_icons.py
+
+# RESTORE DB LOCALLY
+.PHONY: db-restore
+db-restore:
+	mkdir -p tmpbackup
+	scalingo --app quefairedemesobjets --addon postgresql backups-download --output tmpbackup/backup.tar.gz
+	tar xfz tmpbackup/backup.tar.gz --directory tmpbackup
+	@DUMP_FILE=$$(find tmpbackup -type f -name "*.pgsql" -print -quit); \
+	for table in $$(psql "$(DB_URL)" -t -c "SELECT tablename FROM pg_tables WHERE schemaname='public'"); do \
+	    psql "$(DB_URL)" -c "DROP TABLE IF EXISTS $$table CASCADE"; \
+	done || true
+	@DUMP_FILE=$$(find tmpbackup -type f -name "*.pgsql" -print -quit); \
+	pg_restore -d "$(DB_URL)" --clean --no-acl --no-owner --no-privileges "$$DUMP_FILE" || true
+	rm -rf tmpbackup
+	$(DJANGO_ADMIN) migrate

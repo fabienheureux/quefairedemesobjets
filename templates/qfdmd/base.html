@@ -1,0 +1,76 @@
+{% load dsfr_tags qfdmd_tags static %}
+
+<!DOCTYPE html>
+<html
+    lang="fr"
+    class="qf-scroll-smooth"
+    {% if not is_carte %}data-formulaire{% endif %}
+>
+    <head>
+        <meta charset="utf-8">
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, shrink-to-fit=no"
+        />
+        <title>{% block title %}Que faire de mes déchets{% endblock %}</title>
+        <meta name="description" content="{% block meta_description %}Donnons une nouvelle vie aux objets{% endblock %}">
+        {% favicon %}
+
+        {% comment %}
+        Preload https://developer.mozilla.org/fr/docs/Web/HTML/Attributes/rel/preload
+        {% endcomment %}
+
+        {% dsfr_css %}
+        <link rel="stylesheet" href="{% static 'qfdmd.css' %}">
+
+        {% matomo %}
+
+        {% block extra_css %}
+        {% endblock extra_css %}
+
+        {% block extra_js %}
+        {% endblock extra_js %}
+    </head>
+
+    <body
+        class="qf-flex qf-flex-col qf-group"
+        {% if STIMULUS_DEBUG %}data-stimulus-debug="true"{% endif %}
+        {% block body_attrs %}{% endblock %}
+    >
+        {% if request.user.is_authenticated %}
+        <div class="qf-bg-red-marianne-main-472 qf-text-white qf-text-center qf-w-screen qf-py-1v qf-text-xs">
+        Vous êtes bien authentifié, vos statistiques PostHog seront ignorées pour cette session | <a href="{% url 'admin:index' %}">accéder à l'administration</a>
+        </div>
+        {% endif %}
+        {% block header %}
+        {% include "components/header/header.html" %}
+        {% endblock header %}
+
+        <main class="fr-container qf-pb-7w">
+            {% block main %}
+            {% endblock main %}
+        </main>
+
+        {% block sidebar %}
+        {% include "components/sidebar/sidebar.html" %}
+        {% endblock sidebar %}
+
+        {% block footer %}
+        {% include "components/footer/footer.html" %}
+        {% endblock footer %}
+
+        {% dsfr_js %}
+        <script type="module" src="{% static 'qfdmd.js' %}"></script>
+        <script
+            data-controller="analytics"
+            data-analytics-posthog-key-value="{{ assistant.POSTHOG_KEY }}"
+            data-analytics-posthog-debug-value="{{ POSTHOG_DEBUG|lower }}"
+            {% if request.user.is_authenticated %}
+                data-analytics-user-username-value="{{ request.user.username }}"
+                data-analytics-user-email-value="{{ request.user.email }}"
+                data-analytics-user-admin-value="{{ request.user.is_superuser|lower }}"
+            {% endif %}
+            data-analytics-action-value="{% block analytics_action %}{% endblock %}"
+        ></script>
+    </body>
+</html>

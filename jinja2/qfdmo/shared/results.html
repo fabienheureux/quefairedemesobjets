@@ -6,11 +6,15 @@ The values of 120px and 150px are determined empirically.
 They need to match the css variables used for .grid-map selector in qfdmo.css
 #}
 
+{% with address_ok=(form.initial.adresse or form.initial.bounding_box or form.initial.epci_codes) %}
 <div
     class="
     qf-relative
     qf-flex-grow
     qf-shadow
+    {% if is_digital %}
+    max-md:qf-overflow-scroll
+    {% endif %}
     "
     {% if not is_digital %}
     data-controller="map"
@@ -41,22 +45,26 @@ They need to match the css variables used for .grid-map selector in qfdmo.css
                 </a>
             {% endif %}
 
-            {% if is_carte %}
-                {% include "qfdmo/carte/panels/legend.html" %}
-            {% endif %}
-
-            {% with address_ok=(form.initial.adresse or form.initial.bounding_box or acteurs) %}
-                {% include "qfdmo/shared/disclaimers/adresse_missing.html" %}
-                {% include "qfdmo/shared/disclaimers/no_local_solution.html" %}
-            {% endwith %}
-
             {% for acteur in acteurs %}
                 <script type="application/json" data-map-target="acteur">
                     {{ acteur.json_acteur_for_display(direction=form.initial.direction, action_list=form.initial.action_list, carte=carte) | safe }}
                 </script>
             {% endfor %}
         </div>
+
+        {% if address_ok %}
+            {% if is_carte %}
+                {% include "qfdmo/carte/panels/legend.html" %}
+            {% endif %}
+
+            {% if not acteurs %}
+                {% include "qfdmo/shared/disclaimers/no_local_solution.html" %}
+            {% endif %}
+        {% else %}
+            {% include "qfdmo/shared/disclaimers/adresse_missing.html" %}
+        {% endif %}
     {% endif %}
 
     {% include "qfdmo/shared/disclaimers/loading_solutions.html" %}
 </div>
+{% endwith %}

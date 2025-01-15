@@ -1,0 +1,18 @@
+<a
+    href="{% url 'qfdmd:synonyme-detail' slug=result.slug %}"
+    target="_self"
+    style="background-image: none;"
+    class="
+    focus:!no-underline
+    focus:!bg-none
+    focus:!qf-bg-grey-1000-50-hover
+    hover:!no-underline
+    hover:!bg-none
+    hover:!qf-bg-grey-1000-50-hover
+    qf-py-1w md:qf-py-3v qf-pl-3w
+    qf-text-xs md:qf-text-base qf-font-bold
+    "
+    tabindex="0"
+>
+    {{ result.nom|capfirst }}
+</a>

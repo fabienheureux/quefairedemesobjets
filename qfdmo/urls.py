@@ -3,10 +3,12 @@ from django.urls import path
 from django.views.generic import TemplateView
 from django.views.generic.base import RedirectView
 
+from qfdmo.views import google_verification
 from qfdmo.views.adresses import (
     CarteSearchActeursView,
     FormulaireSearchActeursView,
     acteur_detail,
+    acteur_detail_redirect,
     direct_access,
     get_object_list,
     getorcreate_revisionacteur,
@@ -19,8 +21,10 @@ from qfdmo.views.dags import DagsValidation
 urlpatterns = [
     path("", direct_access, name="direct_access"),
     path("carte", CarteSearchActeursView.as_view(), name="carte"),
+    path("carte.json", CarteSearchActeursView.as_view(), name="carte_json"),
     path("formulaire", FormulaireSearchActeursView.as_view(), name="formulaire"),
     path("connexion", LVAOLoginView.as_view(), name="login"),
+    path(settings.QFDMO_GOOGLE_SEARCH_CONSOLE, google_verification),
     path(
         "donnez-votre-avis",
         RedirectView.as_view(
@@ -66,7 +70,10 @@ urlpatterns = [
     ),
     path(
         "adresse/<str:identifiant_unique>",
-        # ActeurView.as_view(),
+        acteur_detail_redirect,
+    ),
+    path(
+        "adresse_details/<str:uuid>",
         acteur_detail,
         name="acteur-detail",
     ),

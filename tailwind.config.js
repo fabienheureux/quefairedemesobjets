@@ -2,21 +2,13 @@
 import DSFRColors from "./dsfr_hacks/colors"
 import usedColors from "./dsfr_hacks/used_colors"
 
-/*
-The colors set here are defined at the database level in actions and groupe actions
-objects.
-They match some colors from the DSFR and their name comes from their CSS variable.
-*/
 module.exports = {
   content: [
-    "jinja2/*.html",
-    "jinja2/**/*html",
-    "jinja2/**/**/*html",
-    "templates/**/*html",
-    "static/to_compile/**/*{j,t}s",
-    "static/to_compile/**/*svg",
+    "jinja2/**/*.html",
+    "templates/**/*.html",
+    "static/to_compile/**/*.{js,ts,svg}",
     "./**/forms.py",
-    "./dsfr_hacks/used_icons.js"
+    "./dsfr_hacks/used_icons.js",
   ],
   prefix: "qf-",
   corePlugins: {
@@ -27,9 +19,10 @@ module.exports = {
     "sm:qf-min-w-[600px]",
     "sm:qf-w-[250px]",
     "sm:qf-w-[400px]",
+    "qf-scale-115",
     {
-      pattern: new RegExp(`qf-(border|bg)-(${usedColors.join('|')})`)
-    }
+      pattern: new RegExp(`qf-(border|bg)-(${usedColors.join("|")})`),
+    },
   ],
   theme: {
     colors: {
@@ -39,7 +32,7 @@ module.exports = {
       },
       black: "black",
       white: "white",
-      ...DSFRColors
+      ...DSFRColors,
     },
     spacing: {
       // https://www.systeme-de-design.gouv.fr/elements-d-interface/fondamentaux-techniques/espacements
@@ -62,11 +55,11 @@ module.exports = {
       height: {
         header: "var(--header-height)",
         "main-svh": "calc(100svh - var(--header-height))",
-        "main-vh": "calc(100vh - var(--header-height))"
+        "main-vh": "calc(100vh - var(--header-height))",
       },
       spacing: {
         header: "var(--header-height)",
-        footer: "var(--footer-height)"
+        footer: "var(--footer-height)",
       },
       maxWidth: {
         readable: "80ch",
@@ -78,6 +71,12 @@ module.exports = {
       },
       minWidth: ({ theme }) => ({ ...theme("spacing") }),
       keyframes: {
+        blink: {
+          "0%": { opacity: 0},
+          "40%": { opacity: 1},
+          "60%": { opacity: 1},
+          "100%": { opacity: 0}
+        },
         wave: {
           "0%": { transform: "rotate(0.0deg) scale3d(0.75, 0.75, 1) translateZ(0)" },
           "10%": { transform: "rotate(6deg) scale3d(1, 1, 1)" },
@@ -96,6 +95,7 @@ module.exports = {
       },
       animation: {
         wave: "wave 1.5s linear",
+        blink: "blink 1s infinite",
         "modal-appear": "modal-appear 0.2s",
       },
     },

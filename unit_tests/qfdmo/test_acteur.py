@@ -11,7 +11,7 @@ from qfdmo.models import (
     RevisionActeur,
     RevisionPropositionService,
 )
-from qfdmo.models.acteur import ActeurType, DisplayedActeur, LabelQualite
+from qfdmo.models.acteur import DisplayedActeur, LabelQualite, Source
 from unit_tests.qfdmo.acteur_factory import (
     ActeurFactory,
     ActeurServiceFactory,
@@ -29,6 +29,7 @@ from unit_tests.qfdmo.action_factory import (
     ActionFactory,
     GroupeActionFactory,
 )
+from unit_tests.qfdmo.sscatobj_factory import SousCategorieObjetFactory
 
 
 @pytest.fixture()
@@ -75,16 +76,22 @@ class TestActeurIsdigital:
         ).is_digital
 
     def test_isdigital_true(self):
-        ActeurType._digital_acteur_type_id = 0
-        acteur_type = ActeurTypeFactory(code="acteur digital")
+        acteur_type = ActeurTypeFactory(code="acteur_digital")
         assert ActeurFactory.build(
             nom="Test Object 1", acteur_type=acteur_type
         ).is_digital
+
+    def test_isdigital_hides_address(self):
+        acteur_type = ActeurTypeFactory(code="acteur_digital")
+        acteur = DisplayedActeurFactory(acteur_type=acteur_type)
+        assert acteur.is_digital
+        assert not acteur.should_display_adresse
 
 
 @pytest.mark.django_db
 class TestActeurDefaultOnSave:
     def test_empty(self):
+        SourceFactory(code="Communauté Longue Vie Aux Objets")
         acteur_type = ActeurTypeFactory(code="fake")
         acteur = ActeurFactory(
             nom="Test Object 1",
@@ -93,8 +100,11 @@ class TestActeurDefaultOnSave:
             source=None,
         )
         assert len(acteur.identifiant_externe) == 12
-        assert acteur.identifiant_unique == "equipe_" + acteur.identifiant_externe
-        assert acteur.source.code == "equipe"
+        assert (
+            acteur.identifiant_unique
+            == "communaute_longue_vie_aux_objets_" + acteur.identifiant_externe
+        )
+        assert acteur.source.code == "Communauté Longue Vie Aux Objets"
 
     def test_default_identifiantunique(self):
         source = SourceFactory(code="source_equipe")
@@ -148,7 +158,7 @@ class TestActeurOpeningHours:
 
 
 @pytest.mark.django_db
-class TestLocationValidation:
+class TestActeurLocationValidation:
     def test_location_validation_raise(self):
         acteur_type = ActeurTypeFactory()
         acteur = Acteur(
@@ -158,8 +168,7 @@ class TestLocationValidation:
             acteur.save()
 
     def test_location_validation_dont_raise(self):
-        ActeurType._digital_acteur_type_id = 0
-        acteur_type = ActeurTypeFactory(code="acteur digital")
+        acteur_type = ActeurTypeFactory(code="acteur_digital")
         acteur = Acteur(
             nom="Test Object 1", identifiant_unique="123", acteur_type=acteur_type
         )
@@ -232,6 +241,16 @@ class TestCreateRevisionActeur:
             identifiant_unique=revision_acteur.identifiant_unique
         )
         assert revision_acteur.action_principale == acteur.action_principale
+
+    def test_new_revision_acteur_on_acteur_with_proposition_services(self):
+        acteur = ActeurFactory()
+        proposition_service = PropositionServiceFactory()
+        acteur.proposition_services.add(proposition_service)
+        revision_acteur = RevisionActeurFactory(
+            identifiant_unique=acteur.identifiant_unique
+        )
+        assert acteur.proposition_services.count() > 0
+        assert revision_acteur.proposition_services.count() > 0
 
     def test_revision_acteur_is_parent(self):
         revision_acteur_parent = RevisionActeurFactory()
@@ -307,7 +326,7 @@ class TestCreateRevisionActeurCreateParent:
 
         assert revision_acteur_parent.labels.count() == 0
 
-    def test_create_parent_proposition_servuces(self):
+    def test_create_parent_proposition_services(self):
         acteur = ActeurFactory()
         revision_acteur = RevisionActeurFactory(
             identifiant_unique=acteur.identifiant_unique
@@ -320,6 +339,82 @@ class TestCreateRevisionActeurCreateParent:
         revision_acteur_parent = revision_acteur.create_parent()
 
         assert revision_acteur_parent.proposition_services.count() == 0
+
+
+@pytest.mark.django_db
+class TestRevisionActeurDuplicate:
+    def test_duplicate(self):
+        acteur = ActeurFactory(nom_commercial="Nom commercial")
+        revision_acteur = RevisionActeurFactory(
+            identifiant_unique=acteur.identifiant_unique,
+            nom_commercial=None,
+            nom="Nom Revision",
+        )
+        revision_acteur_duplicate = revision_acteur.duplicate()
+
+        assert (
+            revision_acteur_duplicate.nom == "Nom Revision"
+        ), f"Should be the name of the revision : {revision_acteur.nom}"
+        assert (
+            revision_acteur_duplicate.acteur_type == revision_acteur.acteur_type
+        ), f"Should be the acteur type of the revision : {revision_acteur.acteur_type}"
+        assert (
+            revision_acteur_duplicate.location == revision_acteur.location
+        ), f"Should be the location of the revision : {revision_acteur.location}"
+        assert (
+            revision_acteur_duplicate.nom_commercial == "Nom commercial"
+        ), f"Should be the nom commercial of the acteur : {acteur.source}"
+
+    def test_duplicate_source(self):
+        SourceFactory(code="Communauté Longue Vie Aux Objets")
+        revision_acteur = RevisionActeurFactory()
+        revision_acteur_duplicate = revision_acteur.duplicate()
+
+        assert revision_acteur_duplicate.source == Source.objects.get(
+            code="Communauté Longue Vie Aux Objets"
+        )
+
+    def test_duplicate_labels(self):
+        revision_acteur = RevisionActeurFactory()
+        label1 = LabelQualiteFactory()
+        label2 = LabelQualiteFactory()
+        revision_acteur.labels.add(label1)
+        revision_acteur.labels.add(label2)
+
+        print(revision_acteur.labels.all())
+
+        revision_acteur_duplicate = revision_acteur.duplicate()
+
+        assert revision_acteur_duplicate.labels.count() == 2
+        assert set(
+            [label.code for label in revision_acteur_duplicate.labels.all()]
+        ) == {
+            label1.code,
+            label2.code,
+        }
+
+    def test_duplicate_proposition_services(self):
+        SourceFactory(code="Communauté Longue Vie Aux Objets")
+        revision_acteur = RevisionActeurFactory()
+        proposition_services1 = RevisionPropositionServiceFactory(
+            acteur=revision_acteur, action=ActionFactory(code="action1")
+        )
+        proposition_services2 = RevisionPropositionServiceFactory(
+            acteur=revision_acteur, action=ActionFactory(code="action2")
+        )
+        sous_categorie1 = SousCategorieObjetFactory()
+        sous_categorie2 = SousCategorieObjetFactory()
+        proposition_services1.sous_categories.add(sous_categorie1, sous_categorie2)
+        proposition_services2.sous_categories.add(sous_categorie1)
+
+        revision_acteur_duplicate = revision_acteur.duplicate()
+        assert revision_acteur_duplicate.proposition_services.count() == 2
+        assert set(
+            [
+                (ps.action.code, ps.sous_categories.count())
+                for ps in revision_acteur_duplicate.proposition_services.all()
+            ]
+        ) == {("action1", 2), ("action2", 1)}
 
 
 @pytest.mark.django_db
@@ -504,7 +599,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
     def test_json_acteur_for_display_ordered(self, displayed_acteur):
         acteur_for_display = json.loads(displayed_acteur.json_acteur_for_display())
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai1"
         assert acteur_for_display["couleur"] == "couleur-actionjai1"
@@ -514,7 +609,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(direction="jai")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai1"
         assert acteur_for_display["couleur"] == "couleur-actionjai1"
@@ -523,7 +618,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(direction="jecherche")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjecherche1"
         assert acteur_for_display["couleur"] == "couleur-actionjecherche1"
@@ -533,7 +628,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(action_list="actionjai2")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai2"
         assert acteur_for_display["couleur"] == "couleur-actionjai2"
@@ -544,7 +639,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             )
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai1"
         assert acteur_for_display["couleur"] == "couleur-actionjai1"
@@ -554,7 +649,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(carte=True)
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-groupeaction2"
         assert acteur_for_display["couleur"] == "couleur-groupeaction2"
@@ -564,7 +659,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(carte=True, direction="jecherche")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-groupeaction2"
         assert acteur_for_display["couleur"] == "couleur-groupeaction2"
@@ -576,7 +671,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             )
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-groupeaction1"
         assert acteur_for_display["couleur"] == "couleur-groupeaction1"
@@ -587,7 +682,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             )
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-groupeaction2"
         assert acteur_for_display["couleur"] == "couleur-groupeaction2"
@@ -598,7 +693,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
 
         acteur_for_display = json.loads(displayed_acteur.json_acteur_for_display())
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai2"
         assert acteur_for_display["couleur"] == "couleur-actionjai2"
@@ -613,7 +708,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(direction="jecherche")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjecherche1"
         assert acteur_for_display["couleur"] == "couleur-actionjecherche1"
@@ -628,7 +723,7 @@ class TestDisplayedActeurJsonActeurForDisplay:
             displayed_acteur.json_acteur_for_display(action_list="actionjai1")
         )
 
-        assert acteur_for_display["identifiant_unique"] is not None
+        assert acteur_for_display["uuid"] is not None
         assert acteur_for_display["location"] is not None
         assert acteur_for_display["icon"] == "icon-actionjai1"
         assert acteur_for_display["couleur"] == "couleur-actionjai1"

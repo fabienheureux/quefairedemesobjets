@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 
 import orjson
 from django import forms
@@ -16,6 +16,7 @@ from django.utils.html import format_html
 from import_export import admin as import_export_admin
 from import_export import fields, resources, widgets
 
+from qfdmo.admin.widgets import CategorieChoiceWidget, SousCategorieChoiceWidget
 from qfdmo.models import (
     Acteur,
     ActeurService,
@@ -34,6 +35,7 @@ from qfdmo.models.acteur import (
     DisplayedPropositionService,
     LabelQualite,
 )
+from qfdmo.models.categorie_objet import CategorieObjet
 from qfdmo.widgets import CustomOSMWidget
 
 
@@ -100,10 +102,29 @@ class BasePropositionServiceForm(forms.ModelForm):
     ]
 
 
+class RevisionPropositionServiceForm(BasePropositionServiceForm):
+    categories = forms.ModelMultipleChoiceField(
+        queryset=CategorieObjet.objects.annotate(
+            libelle_unaccent=Unaccent(Lower("libelle"))
+        ).order_by("libelle_unaccent"),
+        widget=CategorieChoiceWidget,
+        required=False,
+    )
+    categories.widget.attrs.update(
+        {
+            "data-controller": "admin-categorie-widget",
+            "data-action": "admin-categorie-widget#syncSousCategorie",
+        }
+    )
+
+    class Meta:
+        fields = "__all__"
+        widgets = {"sous_categories": SousCategorieChoiceWidget}
+
+
 class BasePropositionServiceInline(admin.TabularInline):
     form = BasePropositionServiceForm
     extra = 0
-
     fields = (
         "action",
         "sous_categories",
@@ -116,6 +137,12 @@ class PropositionServiceInline(NotEditableInlineMixin, BasePropositionServiceInl
 
 class RevisionPropositionServiceInline(BasePropositionServiceInline):
     model = RevisionPropositionService
+    form = RevisionPropositionServiceForm
+    fields = (
+        "action",
+        "categories",
+        "sous_categories",
+    )
 
 
 class DisplayedPropositionServiceInline(
@@ -141,6 +168,7 @@ class BaseActeurAdmin(admin.GISModelAdmin):
     list_display = (
         "nom",
         "siret",
+        "siren",
         "identifiant_unique",
         "code_postal",
         "ville",
@@ -150,12 +178,13 @@ class BaseActeurAdmin(admin.GISModelAdmin):
     search_fields = [
         "code_postal",
         "identifiant_unique",
-        "nom",
+        "nom__unaccent",
         "siret",
+        "siren",
         "ville",
     ]
     search_help_text = (
-        "Recherche sur le nom, le code postal, la ville, le siret ou"
+        "Recherche sur le nom, le code postal, la ville, le siret, le siren ou"
         " l'identifiant unique"
     )
     list_filter = ["statut"]
@@ -167,6 +196,7 @@ class BaseActeurAdmin(admin.GISModelAdmin):
         "nom_commercial",
         "nom_officiel",
         "siret",
+        "siren",
         "naf_principal",
         "description",
         "acteur_type",
@@ -299,9 +329,14 @@ class RevisionActeurChildInline(NotEditableInlineMixin, admin.TabularInline):
 
 class RevisionActeurAdmin(import_export_admin.ImportExportMixin, BaseActeurAdmin):
     change_form_template = "admin/revision_acteur/change_form.html"
-    save_as = True
     gis_widget = CustomOSMWidget
     inlines = []
+    save_as = False
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["duplicate_instance"] = True
+        return super().changeform_view(request, object_id, form_url, extra_context)
 
     def get_inline_instances(self, request, revision_acteur=None):
         inlines = []
@@ -351,12 +386,23 @@ class RevisionActeurAdmin(import_export_admin.ImportExportMixin, BaseActeurAdmin
         return queryset, use_distinct
 
     def response_change(self, request, revision_acteur):
-        if "_get_or_create_parent" in request.POST:
+        if "get_or_create_parent" in request.POST:
             # Cloner l'objet actuel
             parent = revision_acteur.parent or revision_acteur.create_parent()
             return HttpResponseRedirect(
                 reverse("admin:qfdmo_revisionacteur_change", args=[parent.pk])
             )
+        if "duplicate_instance" in request.POST:
+            if not revision_acteur.parent:
+                revision_acteur.create_parent()
+            revision_acteur = revision_acteur.duplicate()
+            return HttpResponseRedirect(
+                reverse(
+                    "admin:qfdmo_revisionacteur_change",
+                    args=[revision_acteur.identifiant_unique],
+                )
+            )
+
         return super().response_change(request, revision_acteur)
 
     def get_form(
@@ -401,7 +447,7 @@ class RevisionActeurAdmin(import_export_admin.ImportExportMixin, BaseActeurAdmin
                 if field_name == "siret" and (
                     siret := obj.siret or acteur.siret
                 ):  # and siret is not null
-                    siren = siret[:9]
+                    siren = obj.siren or siret[:9]
                     form_field.help_text += (
                         '<br>ENTREPRISE : <a href="https://'
                         f'annuaire-entreprises.data.gouv.fr/entreprise/{siren}"'
@@ -484,8 +530,9 @@ class PropositionServiceAdmin(
     search_fields = [
         "acteur__nom",
         "acteur__siret",
+        "acteur__siren",
     ]
-    search_help_text = "Recherche sur le nom ou le siret de l'acteur"
+    search_help_text = "Recherche sur le nom, le siret ou le siren de l'acteur"
 
     def has_add_permission(self, request: HttpRequest, obj=None) -> bool:
         return False
@@ -535,20 +582,25 @@ class OpenSourceDisplayedActeurResource(resources.ModelResource):
 
     limit = 0
     offset = 0
+    licenses = []
 
-    def __init__(self, limit=0, offset=0, **kwargs):
+    def __init__(
+        self, limit: int = 0, offset: int = 0, licenses: List[str] = [], **kwargs
+    ):
         self.limit = limit
         self.offset = offset
+        self.licenses = licenses
         super().__init__(**kwargs)
 
     uuid = fields.Field(column_name="Identifiant", attribute="uuid", readonly=True)
-    sources = fields.Field(
-        column_name="Contributeurs", attribute="sources", readonly=True
-    )
+    sources = fields.Field(column_name="Paternité", attribute="sources", readonly=True)
 
     def dehydrate_sources(self, acteur):
         sources = ["Longue Vie Aux Objets", "ADEME"]
-        sources.extend([f"{source.libelle}" for source in acteur.sources.all()])
+        acteur_sources = acteur.sources.all()
+        if self.licenses:
+            acteur_sources = acteur_sources.filter(licence__in=self.licenses)
+        sources.extend([f"{source.libelle}" for source in acteur_sources])
         seen = set()
         deduplicated_sources = []
         for source in sources:
@@ -561,6 +613,7 @@ class OpenSourceDisplayedActeurResource(resources.ModelResource):
     nom_commercial = fields.Field(
         column_name="Nom commercial", attribute="nom_commercial", readonly=True
     )
+    siren = fields.Field(column_name="SIREN", attribute="siren", readonly=True)
     siret = fields.Field(column_name="SIRET", attribute="siret", readonly=True)
     description = fields.Field(column_name="Description", attribute="description")
     acteur_type = fields.Field(
@@ -650,10 +703,22 @@ class OpenSourceDisplayedActeurResource(resources.ModelResource):
     )
 
     def get_queryset(self):
+
         queryset = super().get_queryset()
+
+        queryset = queryset.prefetch_related(
+            "sources",
+            "labels",
+            "proposition_services__sous_categories",
+            "proposition_services__action",
+        )
+
+        # Only Actif
         queryset = queryset.filter(
             statut=ActeurStatus.ACTIF,
-        ).exclude(
+        )
+        # Exclude acteurs only professionals
+        queryset = queryset.exclude(
             public_accueilli__in=[
                 ActeurPublicAccueilli.AUCUN,
                 ActeurPublicAccueilli.PROFESSIONNELS,
@@ -663,16 +728,15 @@ class OpenSourceDisplayedActeurResource(resources.ModelResource):
         queryset = queryset.exclude(
             identifiant_unique__icontains="_reparation_",
         )
-
-        queryset = queryset.prefetch_related(
-            "sources",
-            "labels",
-            "proposition_services__sous_categories",
-            "proposition_services__action",
-        )
+        # Export only acteurs with expected licenses
+        if self.licenses:
+            queryset = queryset.filter(sources__licence__in=self.licenses)
+        queryset = queryset.distinct()
         queryset = queryset.order_by("uuid")
+
         if self.limit:
             return queryset[self.offset : self.offset + self.limit]
+
         return queryset
 
     class Meta:
@@ -682,6 +746,7 @@ class OpenSourceDisplayedActeurResource(resources.ModelResource):
             "sources",
             "nom",
             "nom_commercial",
+            "siren",
             "siret",
             "description",
             "acteur_type",

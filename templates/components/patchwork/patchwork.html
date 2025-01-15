@@ -1,0 +1,22 @@
+<div class="patchwork">
+    <div class="top">
+        {% for produit in top %}
+            {% include "./_item.html" %}
+        {% endfor %}
+    </div>
+    <div class="left">
+        {% for produit in left %}
+            {% include "./_item.html" %}
+        {% endfor %}
+    </div>
+    <div class="middle">
+        {% include "components/logo/homepage.html" %}
+    </div>
+    <div class="right">
+        {% with alt=True %}
+        {% for produit in right %}
+            {% include "./_item.html" %}
+        {% endfor %}
+        {% endwith %}
+    </div>
+</div>

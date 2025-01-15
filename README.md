@@ -7,6 +7,12 @@ Longue vie aux objets propose des solutions pour promouvoir les gestes de consom
 
 Le site "Longue vie aux objets" est disponible à l'URL : [https://longuevieauxobjets.ademe.fr/](https://longuevieauxobjets.ademe.fr/)
 
+**Certaines pages disposent d'une page dédiée :
+- [Frontend](./docs/Frontend.md)
+- [Commandes utiles](./docs/Commands.md)
+- [Coding guidelines](./docs/Coding-guidelines.md)
+- [Organisations des fichiers dans dags](./docs/Organisations-des-fichiers-dans-dags.md)
+
 ## Afficher l'application dans une Iframe
 
 il suffit d'ajouter le script js suivant:
@@ -111,6 +117,14 @@ Conseil: utiliser `asdf` pour la gestion des environnement virtuel `node` et `py
 
 ### Installation & Exécution
 
+Configuration des variables d'environnement: ajouter (ou mettre à jour si existant)
+la variable AIRFLOW_UID de telle sorte à ce que Docker lance Airflow avec notre utilisateur
+
+```sh
+cp .env.template .env
+sed -i '/^AIRFLOW_UID=/d' .env && echo "AIRFLOW_UID=$(id -u)" >> .env
+```
+
 Les bases de données source `MySQL` et cible `Postgres + Postgis` sont executées et mises à disposition par le gestionnaire de conteneur Docker
 
 ```sh
@@ -129,12 +143,6 @@ Installation
 ```sh
 pip install -r requirements.txt -r dev-requirements.txt
 npm install
-```
-
-Configuration des variables d'environnement
-
-```sh
-cp .env.template .env
 ```
 
 // Modifier les variables dans le fichier .env si nécessaire

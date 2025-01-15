@@ -7,7 +7,6 @@ from django.template.loader import render_to_string
 from django.utils.safestring import mark_safe
 from dsfr.forms import DsfrBaseForm
 
-from core.constants import bonus_reparation
 from qfdmo.fields import GroupeActionChoiceField
 from qfdmo.geo_api import epcis_from, formatted_epcis_as_list_of_tuple
 from qfdmo.models import DagRun, DagRunStatus, SousCategorieObjet
@@ -116,7 +115,7 @@ class AddressesForm(forms.Form):
             "Masquer les adresses qui réparent uniquement les produits de leurs marques"
         ),
         help_text=(
-            "Les enseignes ne réparant que les produits de leur propre marque"
+            "Les adresses ne réparant que les produits de leur propre marque"
             " n'apparaîtront pas si cette case est cochée."
             " (uniquement valable lorsque l'action « réparer » est sélectionnée)"
         ),
@@ -131,7 +130,7 @@ class AddressesForm(forms.Form):
                 "data-search-solution-form-target": "reparerFilter",
             }
         ),
-        label="Label Répar’Acteurs",
+        label="Adresses labellisées Répar’Acteurs",
         help_text=mark_safe(
             """Afficher uniquement les artisans labellisés
             (uniquement valable lorsque l'action « réparer » est sélectionnée).
@@ -159,7 +158,7 @@ class AddressesForm(forms.Form):
 
     ess = forms.BooleanField(
         widget=forms.CheckboxInput(attrs={"class": "fr-checkbox fr-m-1v"}),
-        label="Enseignes de l'économie sociale et solidaire",
+        label="Adresses de l'économie sociale et solidaire",
         help_text=mark_safe(
             "Afficher uniquement les adresses recensées comme relevant de l'économie"
             " sociale et solidaire. En savoir plus sur le site <a href="
@@ -180,7 +179,7 @@ class AddressesForm(forms.Form):
         ),
         label=mark_safe(
             "<span class='fr-icon--sm fr-icon-percent-line'></span>"
-            f"&nbsp;{bonus_reparation}"
+            "&nbsp;Adresses proposant le Bonus Réparation"
         ),
         help_text=mark_safe(
             "Afficher uniquement les adresses éligibles (uniquement valable lorsque l'"

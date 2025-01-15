@@ -3,13 +3,13 @@ from datetime import datetime
 
 import pandas as pd
 import utils.base_utils as base_utils
-import utils.dag_eo_utils as dag_eo_utils
 import utils.mapping_utils as mapping_utils
 import utils.siret_control_utils as siret_control_utils
 from airflow import DAG
 from airflow.models.param import Param
 from airflow.operators.python import PythonOperator
-from airflow.providers.postgres.hooks.postgres import PostgresHook
+from shared.tasks.airflow_logic.write_data_task import write_data_task
+from shared.tasks.database_logic.db_manager import PostgresConnectionManager
 
 pd.set_option("display.max_columns", None)
 
@@ -46,8 +46,7 @@ dag = DAG(
 
 def fetch_and_parse_data(**context):
     limit = context["params"]["limit"]
-    pg_hook = PostgresHook(postgres_conn_id="qfdmo_django_db")
-    engine = pg_hook.get_sqlalchemy_engine()
+    engine = PostgresConnectionManager().engine
     active_actors_query = """
         SELECT
             da.*,
@@ -318,11 +317,6 @@ get_location_task = PythonOperator(
     dag=dag,
 )
 
-write_data_task = PythonOperator(
-    task_id="db_data_write",
-    python_callable=dag_eo_utils.write_to_dagruns,
-    dag=dag,
-)
 
 serialize_to_json_task = PythonOperator(
     task_id="db_data_prepare",
@@ -343,5 +337,5 @@ combine_candidates = PythonOperator(
     >> combine_candidates
     >> get_location_task
     >> serialize_to_json_task
-    >> write_data_task
+    >> write_data_task(dag)
 )

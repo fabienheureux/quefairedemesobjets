@@ -30,3 +30,7 @@ e2e_tests/*-snapshots
 airflow_settings.yaml
 logs
 airflow-pgdata/
+
+media
+
+_build
