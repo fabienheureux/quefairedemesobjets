@@ -1,0 +1,1411 @@
+# Ignore line length recommandations from flake8
+# flake8: noqa: E501
+from pathlib import Path
+
+from django import forms
+from django.conf import settings
+from django.contrib.gis.geos import Point
+from django.core.paginator import Paginator
+from django.template import Context, Template
+from django.template.loader import render_to_string
+from django.test import RequestFactory
+from django_lookbook.preview import LookbookPreview
+from django_lookbook.utils import register_form_class
+from dsfr.forms import DsfrBaseForm
+
+from core.constants import DEFAULT_MAP_CONTAINER_ID
+from core.context_processors import content, environment, global_context
+from core.widgets import (
+    SearchAutocompleteInput,
+)
+from infotri.forms import InfotriForm
+from qfdmd.forms import QfSearchForm
+from qfdmd.models import Synonyme
+from qfdmd.views import get_homepage
+from qfdmo.forms import (
+    LegendeForm,
+    ViewModeForm,
+)
+from qfdmo.models.acteur import (
+    ActeurType,
+    DisplayedActeur,
+    DisplayedPropositionService,
+    LabelQualite,
+)
+from qfdmo.models.action import Action
+from qfdmo.models.config import CarteConfig
+from search.models import SearchTerm
+from qfdmo.widgets import SynonymeAutocompleteInput
+
+base_url = settings.BASE_URL
+
+
+class ContextAwareLookbookPreview(LookbookPreview):
+    """Base preview class that applies context processors like regular Django views.
+
+    This ensures previews have access to the same context variables (e.g., `assistant`,
+    `CARTE`, etc.) that are available in production views.
+    """
+
+    context_processors = [environment, content, global_context]
+
+    @classmethod
+    def get_base_context(cls, path="/"):
+        """Build context from context processors.
+
+        Args:
+            request: Optional request object. If None, creates a mock request.
+
+        Returns:
+            dict: Combined context from all configured context processors.
+        """
+        request = RequestFactory().get(path)
+        context = {"request": request}
+        for processor in cls.context_processors:
+            context.update(processor(request))
+        return context
+
+
+def component_docs(md_file_path):
+    """
+    Decorator that automatically loads and injects markdown documentation
+    from a .md file into the preview method's docstring.
+
+    Usage:
+        @component_docs("ui/components/button.md")
+        def button(self, **kwargs):
+            context = {"href": "google.fr", "text": "test"}
+            return render_to_string("ui/components/button.html", context)
+
+    The decorator will look for templates/ui/components/button.md and inject
+    its content as the method's docstring for django-lookbook to display.
+    """
+
+    def decorator(func):
+        # Load the markdown documentation
+        base_dir = Path(settings.BASE_DIR)
+        templates_dir = base_dir / "templates"
+        md_path = templates_dir / md_file_path
+
+        if md_path.exists():
+            func.__doc__ = md_path.read_text()
+
+        return func
+
+    return decorator
+
+
+class IframeForm(forms.Form):
+    iframe = forms.BooleanField(
+        label="Version iframe",
+        help_text="Afficher la version iframe de la page",
+        initial=False,
+        required=False,
+    )
+
+
+class ProduitHeadingForm(forms.Form):
+    """
+    Form for produit heading with search_term and pronom choices
+    """
+
+    search_term = forms.ModelChoiceField(
+        label="Terme de recherche",
+        queryset=SearchTerm.objects.all(),
+        help_text="Sélectionnez un terme de recherche",
+        required=False,
+    )
+
+    pronom = forms.ChoiceField(
+        label="Pronom",
+        choices=[
+            ("mon", "mon"),
+            ("ma", "ma"),
+            ("mes", "mes"),
+        ],
+        help_text="Choisissez le pronom",
+        initial="mon",
+    )
+
+
+class CarteConfigForm(forms.Form):
+    """
+    Form for carte config
+    """
+
+    def get_first_carte_config():
+        return CarteConfig.objects.first()
+
+    carte_config = forms.ModelChoiceField(
+        label="Carte config",
+        help_text="Carte config",
+        required=False,
+        queryset=CarteConfig.objects.all(),
+        initial=get_first_carte_config,
+    )
+
+
+def get_default_action():
+    return Action.objects.get(code="reparer")
+
+
+class PinPointForm(forms.Form):
+    action = forms.ModelChoiceField(
+        queryset=Action.objects.all(),
+        label="Action",
+        to_field_name="code",
+        help_text="Sélectionnez une action",
+        initial=get_default_action,
+    )
+    avec_bonus = forms.BooleanField(
+        label="Avec bonus",
+        help_text="Avec bonus",
+        initial=False,
+    )
+    carte = forms.BooleanField(
+        label="Carte",
+        help_text="Carte",
+        initial=True,
+    )
+    carte_config = forms.ModelChoiceField(
+        label="Carte config",
+        help_text="Carte config",
+        required=False,
+        queryset=CarteConfig.objects.all(),
+    )
+    acteur_type = forms.ModelChoiceField(
+        label="Acteur type",
+        help_text="Action list",
+        to_field_name="code",
+        required=False,
+        queryset=ActeurType.objects.all(),
+        initial="",
+    )
+
+
+class ReferrerTestForm(forms.Form):
+    """
+    Form for referrer test with script type choice
+    """
+
+    script_type = forms.ChoiceField(
+        label="Type de script",
+        choices=[
+            ("carte", "Carte (carte.js)"),
+            ("assistant", "Assistant (iframe.js)"),
+        ],
+        help_text="Choisissez le type de script à tester",
+        initial="carte",
+    )
+
+
+class CartePreview(LookbookPreview):
+    """
+    Previews for carte components
+    """
+
+    @component_docs("ui/components/carte/mode_liste.md")
+    def mode_liste(self, **kwargs):
+        acteurs = DisplayedActeur.objects.all()[:10]
+        paginator = Paginator(acteurs, 5)
+        page = paginator.get_page(1)
+
+        # Create a fake request for the context
+        factory = RequestFactory()
+        request = factory.get("/")
+
+        context = {
+            "paginated_acteurs_obj": page,
+            "count": acteurs.count(),
+            "CARTE": {"ajouter_un_lieu_mode_liste": "Proposer une adresse"},
+            "map_container_id": DEFAULT_MAP_CONTAINER_ID,
+            "forms": {
+                "legende": LegendeForm(),
+                "filtres_form": None,
+            },
+            "request": request,
+        }
+        return render_to_string("ui/components/carte/mode_liste.html", context)
+
+    @component_docs("ui/components/carte/legend.md")
+    def legend(self, **kwargs):
+        context = {
+            "forms": {
+                "legende": LegendeForm(),
+                "filtres_form": None,
+            },
+            "carte_config": None,
+        }
+        return render_to_string("ui/components/carte/legend.html", context)
+
+    @component_docs("ui/components/carte/buttons/ajouter_un_lieu.md")
+    def ajouter_un_lieu(self, **kwargs):
+        context = {"CARTE": {"ajouter_un_lieu": "Proposer une adresse"}}
+        return render_to_string(
+            "ui/components/carte/buttons/ajouter_un_lieu.html", context
+        )
+
+    @component_docs("ui/components/carte/buttons/ajouter_un_lieu_mode_liste.md")
+    def ajouter_un_lieu_mode_liste(self, **kwargs):
+        context = {"CARTE": {"ajouter_un_lieu_mode_liste": "Proposer une adresse"}}
+        return render_to_string(
+            "ui/components/carte/buttons/ajouter_un_lieu_mode_liste.html", context
+        )
+
+
+class ComponentsPreview(LookbookPreview):
+    @register_form_class(PinPointForm)
+    @component_docs("templatetags/acteur_pinpoint.md")
+    def acteur_pinpoint(
+        self,
+        action="reparer",
+        avec_bonus="False",
+        carte="True",
+        carte_config=None,
+        acteur_type=None,
+        **kwargs,
+    ):
+        try:
+            # FIXME : avec_bonus is returned as a string by the lookbook where I expected
+            # a boolean
+            # We suspect an issue upstream in django-lookbook, this might need to be investigated
+            # and raised to the maintainer.
+            if isinstance(action, str) and action:
+                action = Action.objects.get(code=action)
+            if isinstance(carte_config, str) and carte_config:
+                carte_config = CarteConfig.objects.get(id=carte_config)
+            if isinstance(acteur_type, str) and acteur_type:
+                acteur_type = ActeurType.objects.get(code=acteur_type)
+            if isinstance(avec_bonus, str):
+                avec_bonus = avec_bonus.lower() == "true"
+            if isinstance(carte, str):
+                carte = carte.lower() == "true"
+
+            displayed_proposition_service = DisplayedPropositionService.objects.filter(
+                action=action
+            )
+            if acteur_type:
+                displayed_proposition_service = displayed_proposition_service.filter(
+                    acteur__acteur_type=acteur_type
+                )
+            if avec_bonus:
+                displayed_proposition_service = displayed_proposition_service.filter(
+                    acteur__labels__bonus=True
+                )
+            else:
+                displayed_proposition_service = displayed_proposition_service.exclude(
+                    acteur__in=DisplayedActeur.objects.filter(labels__bonus=True)
+                )
+            displayed_proposition_service = displayed_proposition_service.first()
+            if not displayed_proposition_service:
+                raise ValueError(f"PropositionService with action `{action}` not found")
+        except Exception as e:
+            template = Template(
+                "Une erreur s'est produite dans la génération de la preview,"
+                f" la combinaison de filtres ne permet pas d'afficher un pinpoint <br><pre>{e}</pre>",
+            )
+
+            return template.render(Context({}))
+
+        context = {
+            "acteur": displayed_proposition_service.acteur,
+            "direction": action.directions.first().code,
+            "action_list": action.code,
+            "carte": carte,
+            "carte_config": carte_config,
+            "sc_id": displayed_proposition_service.sous_categories.first().id,
+        }
+        template = Template("""
+            {% load carte_tags %}
+            {% acteur_pinpoint_tag acteur=acteur direction=direction action_list=action_list carte=carte carte_config=carte_config sous_categorie_id=sc_id %}
+            """)
+        return template.render(Context(context))
+
+    def acteur_pinpoint_multiple(self, **kwargs):
+        """
+        Preview showing two pinpoints side by side to test active state toggling.
+        Uses dummy acteur objects to avoid generating real links.
+        """
+
+        class DummyActeur:
+            def __init__(self, latitude, longitude, uuid, *args, **kwargs):
+                self.latitude = latitude
+                self.longitude = longitude
+                self.uuid = uuid
+                self.location = Point(longitude, latitude)
+                self.action_to_display = lambda *args, **kwargs: None
+                self.full_url = "#"
+
+        acteur_1 = DummyActeur(48.8566, 2.3522, "dummy-1")
+        acteur_2 = DummyActeur(48.8606, 2.3376, "dummy-2")
+
+        context = {
+            "acteur_1": acteur_1,
+            "acteur_2": acteur_2,
+        }
+        template = Template("""
+            {% load carte_tags %}
+            <div class="qf-flex qf-gap-4 qf-p-4" data-controller="map">
+                <div data-testid="pinpoint-1">
+                    {% acteur_pinpoint_tag acteur=acteur_1 %}
+                </div>
+                <div data-testid="pinpoint-2">
+                    {% acteur_pinpoint_tag acteur=acteur_2 %}
+                </div>
+            </div>
+            """)
+        return template.render(Context(context))
+
+    @component_docs("ui/components/button.md")
+    def button(self, **kwargs):
+        context = {"href": "google.fr", "text": "test"}
+        return render_to_string("ui/components/button.html", context)
+
+    @component_docs("ui/components/code/code.md")
+    def code(self, **kwargs):
+        context = {
+            "script": '<script src="https://quefairedemesdechets.ademe.local/iframe.js"></script>',
+        }
+        return render_to_string("ui/components/code/code.html", context)
+
+    @component_docs("ui/components/logo/site_logo_mini.md")
+    def site_logo_mini(self, **kwargs):
+        return render_to_string("ui/components/logo/site_logo_mini.html")
+
+    @component_docs("ui/components/logo/site_logo_large.md")
+    def site_logo_large(self, **kwargs):
+        return render_to_string("ui/components/logo/site_logo_large.html")
+
+    @component_docs("ui/components/footer/combined_logos.md")
+    def combined_logos(self, **kwargs):
+        return render_to_string("ui/components/footer/combined_logos.html")
+
+    @register_form_class(ProduitHeadingForm)
+    @component_docs("ui/components/produit/heading.md")
+    def produit_heading(self, search_term=None, pronom="mon", **kwargs):
+        factory = RequestFactory()
+        request = factory.get("/")
+
+        # If search_term is provided (as string ID from form), add it to the request
+        if search_term:
+            if isinstance(search_term, str):
+                request = factory.get("/", {"search_term_id": search_term})
+            elif isinstance(search_term, SearchTerm):
+                request = factory.get("/", {"search_term_id": search_term.id})
+
+        context = {"title": "Coucou !", "request": request, "pronom": pronom}
+
+        return render_to_string("ui/components/produit/heading.html", context, request)
+
+    @register_form_class(ProduitHeadingForm)
+    @component_docs("ui/components/produit/heading_family.md")
+    def produit_heading_family(self, search_term=None, pronom="mon", **kwargs):
+        factory = RequestFactory()
+        request = factory.get("/")
+
+        # If search_term is provided (as string ID from form), add it to the request
+        if search_term:
+            if isinstance(search_term, str):
+                request = factory.get("/", {"search_term_id": search_term})
+            elif isinstance(search_term, SearchTerm):
+                request = factory.get("/", {"search_term_id": search_term.id})
+
+        context = {
+            "label": "youpi",
+            "title": "Coucou !",
+            "request": request,
+            "pronom": pronom,
+        }
+
+        return render_to_string(
+            "ui/components/produit/heading_family.html", context, request
+        )
+
+    @component_docs("ui/components/mini_carte/mini_carte.md")
+    def mini_carte(self, **kwargs):
+        acteur = DisplayedActeur.objects.first()
+        acteur.location = Point(-2, 48)
+        context = {
+            "preview": True,
+            "acteur": acteur,
+            "search_latitude": "48.1",
+            "search_longitude": "-2.01",
+        }
+
+        return render_to_string("ui/components/mini_carte/mini_carte.html", context)
+
+    @component_docs("ui/components/spinner.md")
+    def spinner(self, **kwargs):
+        context = {"small": False}
+        return render_to_string("ui/components/spinner.html", context)
+
+    @component_docs("ui/components/spinner.md")
+    def spinner_small(self, **kwargs):
+        context = {"small": True}
+        return render_to_string("ui/components/spinner.html", context)
+
+    def label_qualite_dsfr_tag(self, **kwargs):
+        context = {"label": LabelQualite.objects.get(code="bonusrepar")}
+        return render_to_string("ui/components/label_qualite/dsfr_label.html", context)
+
+    def label_qualite(self, **kwargs):
+        template = Template("""
+            {% load acteur_tags %}
+            {% acteur_label %}
+            """)
+        context = {
+            "object": DisplayedActeur.objects.filter(
+                labels__code__in=["bonusrepar"],
+            ).first()
+        }
+        return template.render(Context(context))
+
+    def service_tag(self, **kwargs):
+        """Preview for service tags in both default and formulaire modes"""
+        action = Action.objects.first()
+        if not action:
+            return "No actions available in database"
+
+        context_default = {
+            "action": action,
+            # is_formulaire not set, defaults to False
+        }
+        context_formulaire = {
+            "action": action,
+            "is_formulaire": True,
+        }
+
+        # Render both versions to show the difference
+        default_html = Template("""
+            {% load acteur_tags %}
+            <div style="padding: 1rem;">
+                <h3>Service tag - default (carte/list/acteur detail)</h3>
+                <p>Uses action.groupe_action - is_formulaire is not set (defaults to False)</p>
+                {% service_tag text=action.libelle action=action %}
+            </div>
+            """).render(Context(context_default))
+
+        formulaire_html = Template("""
+            {% load acteur_tags %}
+            <div style="padding: 1rem;">
+                <h3>Service tag - formulaire mode</h3>
+                <p>Uses action directly with reduced opacity - is_formulaire=True</p>
+                {% service_tag text=action.libelle action=action %}
+            </div>
+            """).render(Context(context_formulaire))
+
+        return default_html + formulaire_html
+
+    @register_form_class(IframeForm)
+    @component_docs("ui/components/footer/footer.md")
+    def footer(self, iframe=False, **kwargs):
+        # Convert string values to boolean
+        if isinstance(iframe, str):
+            iframe = iframe.lower() == "true"
+
+        context = {"iframe": iframe}
+        return render_to_string("ui/components/footer/footer.html", context)
+
+    @register_form_class(IframeForm)
+    @component_docs("ui/components/header/header.md")
+    def header(self, iframe=False, **kwargs):
+        # Convert string values to boolean
+        if isinstance(iframe, str):
+            iframe = iframe.lower() == "true"
+
+        context = {"request": None, "iframe": iframe}
+        return render_to_string("ui/components/header/header.html", context)
+
+
+class FiltresPreview(LookbookPreview):
+    """
+    Previews for filter label components
+    """
+
+    @component_docs("ui/components/filtres/bonus/label.md")
+    def label_bonus(self, **kwargs):
+        return render_to_string("ui/components/formulaire/filtres/bonus/label.html")
+
+    @component_docs("ui/components/filtres/ess/label.md")
+    def label_ess(self, **kwargs):
+        return render_to_string("ui/components/filtres/ess/label.html")
+
+    @component_docs("ui/components/filtres/reparacteurs/label.md")
+    def label_reparacteurs(self, **kwargs):
+        return render_to_string(
+            "ui/components/formulaire/filtres/reparacteurs/label.html"
+        )
+
+
+class BonusForm(forms.Form):
+    bonus = forms.ChoiceField(
+        label="Bonus",
+        help_text="Bonus value (0 or 1)",
+        initial="1",
+        choices=((1, "Avec filtre bonus"), (None, "Sans filtre")),
+    )
+
+
+class CarteCentreeForm(forms.Form):
+    mode = forms.ChoiceField(
+        label="Mode de centrage",
+        help_text="Choisissez comment centrer la carte",
+        initial="epci",
+        choices=(
+            ("epci", "EPCI (Auray Quiberon Terre Atlantique)"),
+            ("bounding_box", "Bounding Box"),
+        ),
+    )
+
+
+class ModalsPreview(LookbookPreview):
+    @component_docs("ui/components/modals/integration.md")
+    def integration(self, **kwargs):
+        return render_to_string("ui/components/modals/embed.html")
+
+    def partage(self, **kwargs):
+        return render_to_string("ui/components/modals/share.html")
+
+    def filtres(self, **kwargs):
+        from qfdmo.forms import FiltresForm, LegendeForm
+
+        context = {"legende_form": LegendeForm(), "filtres_form": FiltresForm}
+        return render_to_string("ui/components/modals/filtres.html", context)
+
+
+class FormulairesPreview(LookbookPreview):
+    @component_docs("ui/components/formulaires/plusieurs_formulaires.md")
+    def plusieurs_formulaires(self, **kwargs):
+        form1 = LegendeForm(prefix="1")
+        form2 = LegendeForm(prefix="2")
+
+        template = Template("""
+            {% load turbo_tags %}
+            <form>
+                {% include "ui/components/modals/filtres.html" with filtres_form=form1 id="filtres-legende" %}
+                {% include "ui/components/modals/filtres.html" with filtres_form=form2 id="filtres-legende-mobile" %}
+            </form>
+            """)
+        context = {"form1": form1, "form2": form2}
+        return template.render(Context(context))
+
+    def autocompletion(self, **kwargs):
+        class AutocompleteForm(DsfrBaseForm):
+            synonyme = forms.ModelChoiceField(
+                queryset=Synonyme.objects.all(),
+                widget=SynonymeAutocompleteInput(),
+                help_text="pantalon, perceuse, canapé...",
+                label="Indiquer un objet ",
+                empty_label="",
+                required=False,
+            )
+
+        form = AutocompleteForm()
+        template = Template("{{ form }}")
+        context = {"form": form}
+        return template.render(Context(context))
+
+    @component_docs("ui/components/formulaires/mode_carte_liste.md")
+    def mode_carte_liste(self, **kwargs):
+        form = ViewModeForm()
+        template = Template("{{ form }}")
+        context = {"form": form}
+        return template.render(Context(context))
+
+    def autocomplete_widgets(self, **kwargs):
+        """Prévisualisation de tous les types de widgets d'autocomplétion sur une seule page."""
+
+        class AutocompleteFormExample(DsfrBaseForm):
+            synonyme = forms.ModelChoiceField(
+                queryset=Synonyme.objects.all(),
+                widget=SynonymeAutocompleteInput(),
+                help_text="pantalon, perceuse, canapé...",
+                label="Autocomplétion Synonyme",
+                empty_label="",
+                required=False,
+            )
+
+            search = forms.CharField(
+                label="Autocomplétion Recherche d'accueil",
+                required=False,
+                widget=SearchAutocompleteInput(
+                    attrs={
+                        "class": "fr-input",
+                        "placeholder": "pantalon, perceuse, canapé...",
+                        "autocomplete": "off",
+                    },
+                ),
+            )
+
+        form = AutocompleteFormExample()
+
+        template = Template("""
+            <div class="qf-max-w-3xl qf-space-y-4w">
+                <h2 class="qf-text-2xl qf-font-bold qf-mb-4w">Widgets d'autocomplétion</h2>
+                <hr>
+
+                {{ form }}
+            </div>
+            """)
+        context = {
+            "form": form,
+        }
+        return template.render(Context(context))
+
+
+class PagesPreview(ContextAwareLookbookPreview):
+    @register_form_class(IframeForm)
+    def home(self, iframe=False, **kwargs):
+        if isinstance(iframe, str):
+            iframe = iframe.lower() == "true"
+
+        context = self.get_base_context()
+        context.update(
+            {
+                "page": get_homepage(),
+                "iframe": iframe,
+            }
+        )
+        return render_to_string("ui/pages/home.html", context)
+
+    def home_hero(self, **kwargs):
+        """
+        # Accueil — Bandeau hero
+
+        Renders the green hero banner (title, subtitle, search bar) as it appears
+        on the homepage. Reads `hero_title`, `hero_subtitle`, and `hero_search_label`
+        from the `HomePage` page object; falls back to hardcoded defaults when empty.
+        """
+        context = self.get_base_context()
+        context.update({"page": get_homepage(), "iframe": False})
+        return render_to_string("ui/pages/home.html", context)
+
+    @register_form_class(IframeForm)
+    def produit(self, iframe=False, **kwargs):
+        if isinstance(iframe, str):
+            iframe = iframe.lower() == "true"
+
+        context = self.get_base_context("/un-produit")
+        context.update(
+            {
+                "object": Synonyme.objects.first(),
+                "iframe": iframe,
+            }
+        )
+        return render_to_string("ui/pages/produit.html", context)
+
+    @register_form_class(IframeForm)
+    def acteur(self, iframe=False, **kwargs):
+        if isinstance(iframe, str):
+            iframe = iframe.lower() == "true"
+
+        context = self.get_base_context("un-acteur")
+        context.update(
+            {
+                "object": DisplayedActeur.objects.first(),
+                "base_template": "ui/layout/base.html",
+                "turbo": False,
+                "iframe": iframe,
+            }
+        )
+        return render_to_string("ui/pages/acteur.html", context)
+
+
+class IframePreview(LookbookPreview):
+    def carte(self, **kwargs):
+        """
+        # Carte
+
+        Copiez ce script pour intégrer la carte sur votre site :
+
+        ```html
+        <script src="{base_url}/static/carte.js"></script>
+        ```
+        """
+
+        template = Template(
+            f"""
+            <script src="{base_url}/static/carte.js"></script>
+            """,
+        )
+        return template.render(Context({}))
+
+    @register_form_class(CarteConfigForm)
+    def carte_sur_mesure(self, carte_config=None, **kwargs):
+        """
+        # Carte sur mesure
+
+        Copiez ce script pour intégrer une carte personnalisée :
+
+        ```html
+        <script src="{base_url}/static/carte.js" data-slug="cyclevia"></script>
+        ```
+        """
+        # carte_config is returned as a string by django-lookbook where we expected
+        # representing the id of a CarteConfig object.
+        if isinstance(carte_config, str) and carte_config:
+            carte_config = CarteConfig.objects.get(id=carte_config)
+
+        slug = carte_config.slug if carte_config else "cyclevia"
+
+        template = Template(
+            f"""
+            <script src="{base_url}/static/carte.js" data-slug="{slug}"></script>
+            """,
+        )
+
+        return template.render(Context({}))
+
+    def carte_preconfiguree(self, **kwargs):
+        """
+        # Carte préconfigurée
+
+        Copiez ce script pour intégrer une carte avec filtres prédéfinis :
+
+        ```html
+        <script src="{base_url}/static/carte.js"
+            data-action_displayed="preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre"
+            data-max-width="800px"
+            data-height="720px"
+            data-bounding_box="{{ 'southWest': {{'lat': 47.570401, 'lng': 1.597977 }}, 'northEast': {{ 'lat': 48.313697, 'lng': 3.059159 }}}}">
+        </script>
+        ```
+        """
+
+        template = Template(
+            f"<script src='{base_url}/static/carte.js'"
+            """data-action_displayed="preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre"
+            data-max-width="800px"
+            data-height="720px"
+            data-bounding_box="{&quot;southWest&quot;: {&quot;lat&quot;: 47.570401, &quot;lng&quot;: 1.597977}, &quot;northEast&quot;: {&quot;lat&quot;: 48.313697, &quot;lng&quot;: 3.059159}}"
+            ></script>
+            """,
+        )
+
+        return template.render(Context({}))
+
+    def integrations(self, **kwargs):
+        """
+        # Integrations
+
+        Copiez ce script pour intégrer une carte avec des paramètres spécifiques :
+
+        ```html
+        <script src="{base_url}/static/carte.js"
+            data-action_list="preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre"
+            data-bounding_box="{{ 'southWest': {{'lat': 47.457526, 'lng': -0.609453 }}, 'northEast': {{ 'lat': 47.489048, 'lng': -0.51571 }}}}">
+        </script>
+        ```
+        """
+
+        template = Template(
+            f"<script src='{base_url}/static/carte.js'"
+            """ data-action_list="preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre" data-bounding_box="{&quot;southWest&quot;: {&quot;lat&quot;: 47.457526, &quot;lng&quot;: -0.609453}, &quot;northEast&quot;: {&quot;lat&quot;: 47.489048, &quot;lng&quot;: -0.51571}}"></script>
+            """,
+        )
+
+        return template.render(Context({}))
+
+    def formulaire(self, **kwargs):
+        """
+        # Formulaire
+
+        Copiez ce script pour intégrer le formulaire de recherche :
+
+        ```html
+        <script src="{base_url}/static/iframe.js"
+            data-max_width="100%"
+            data-height="720px"
+            data-direction="jai"
+            data-action_list="reparer|echanger|mettreenlocation|revendre"
+            data-iframe_attributes='{{ "loading":"lazy", "id" : "resize" }}'>
+        </script>
+        ```
+        """
+
+        template = Template(
+            f"<script src='{base_url}/static/iframe.js'" """
+                data-max_width="100%"
+                data-height="720px"
+                data-direction="jai"
+                data-action_list="reparer|echanger|mettreenlocation|revendre"
+                data-iframe_attributes='{"loading":"lazy"}'>
+                </script>
+            """,
+        )
+
+        return template.render(Context({}))
+
+    def assistant(self, **kwargs):
+        """
+        # Assistant
+
+        Copiez ce script pour intégrer l'assistant produit/déchet :
+
+        ```html
+        <script src="{base_url}/iframe.js"></script>
+        ```
+        """
+
+        template = Template(
+            f"""
+        <script src="{base_url}/iframe.js" data-testid='assistant'></script>
+        """,
+        )
+
+        return template.render(Context({}))
+
+    def assistant_with_epci(self, **kwargs):
+        """
+        # Assistant avec EPCI
+
+        Copiez ce script pour intégrer l'assistant avec un code EPCI et objet prédéfinis :
+
+        ```html
+        <script src="{base_url}/iframe.js" data-epci="200043123" data-objet="lave-linge"></script>
+        ```
+        """
+
+        template = Template(
+            f"""
+        <script src="{base_url}/iframe.js" data-epci="200043123" data-objet="lave-linge"></script>
+        """,
+        )
+
+        return template.render(Context({}))
+
+    def assistant_without_referrer(self, **kwargs):
+        """
+        # Assistant sans referrer
+
+        Copiez ce script pour intégrer l'assistant en mode debug (sans referrer) :
+
+        ```html
+        <script src="{base_url}/iframe.js" data-debug-referrer></script>
+        ```
+        """
+
+        template = Template(
+            f"""
+        <script src="{base_url}/iframe.js" data-debug-referrer data-testid='assistant'></script>
+        """,
+        )
+
+        return template.render(Context({}))
+
+    def assistant_600px(self, **kwargs):
+        template = Template(
+            f"""
+            <div class="fr-alert fr-alert--info fr-mb-3w">
+              <h3 class="fr-alert__title">iframe de 600px</h3>
+              <p>L'iframe ci-dessous est générée avec une hauteur de 600px maximum (sans utiliser le script). <br>
+              On attend que celle-ci soit visible sans scroll dans l'iframe
+              </p>
+            </div>
+            <hr>
+            <iframe src="{base_url}" style="width:100%;height:600px;" title="Page embarquée"></iframe>
+            """,
+        )
+
+        return template.render(Context({}))
+
+    @register_form_class(InfotriForm)
+    def infotri(self, categorie="", consigne="", avec_phrase="false", **kwargs):
+        """
+        # Info-tri
+
+        Affiche un Info-tri avec les options configurables via le formulaire.
+
+        Copiez ce script pour intégrer l'Info-tri sur votre site :
+
+        ```html
+        <script src="{base_url}/infotri/iframe.js"
+                data-config="{config}"></script>
+        ```
+        """
+
+        # Build config string from parameters
+        params = []
+        if categorie:
+            params.append(f"categorie={categorie}")
+        if consigne:
+            params.append(f"consigne={consigne}")
+
+        # Handle avec_phrase as boolean string
+        if isinstance(avec_phrase, str):
+            avec_phrase_value = avec_phrase.lower() in ["true", "1", "yes", "on"]
+        else:
+            avec_phrase_value = bool(avec_phrase)
+        params.append(f"avec_phrase={'true' if avec_phrase_value else 'false'}")
+
+        config = "&".join(params)
+
+        template = Template(
+            f"""
+        <script src="{base_url}/infotri/iframe.js"
+                data-config="{config}"></script>
+        """,
+        )
+
+        return template.render(Context({}))
+
+    def infotri_configurator(self, **kwargs):
+        """
+        # Configurateur Info-tri
+
+        Affiche le configurateur Info-tri complet en iframe.
+
+        Copiez ce script pour intégrer le configurateur :
+
+        ```html
+        <script src="{base_url}/infotri/configurateur.js"></script>
+        ```
+        """
+        template = Template(
+            f"""
+        <script src="{base_url}/infotri/configurateur.js"></script>
+        """,
+        )
+
+        return template.render(Context({}))
+
+
+class AccessibilitePreview(LookbookPreview):
+    @component_docs("ui/components/accessibilite/P01_7_3.md")
+    def P01_7_3(self, **kwargs):
+        return render_to_string("ui/modals/share.html")
+
+    @component_docs("ui/components/accessibilite/P01_3_3.md")
+    def P01_3_3(self, **kwargs):
+        context = {"search_form": QfSearchForm()}
+        return render_to_string("ui/components/search/view.html", context)
+
+    @component_docs("ui/components/accessibilite/P01_10_2.md")
+    def P01_10_2(self, **kwargs):
+        context = {"search_form": QfSearchForm()}
+        return render_to_string("ui/components/search/view.html", context)
+
+    @component_docs("ui/components/accessibilite/P01_10_7.md")
+    def P01_10_7(self, **kwargs):
+        context = {"search_form": QfSearchForm()}
+        return render_to_string("ui/components/search/view.html", context)
+
+    @component_docs("ui/components/accessibilite/P01_13_8.md")
+    def P01_13_8(self, **kwargs):
+        template = Template(
+            """
+            {% load dsfr_tags %}
+
+            <p class="fr-h2">Logo en homepage</p>
+            {% include "ui/components/logo/homepage.html" %}
+            <hr>
+            <p class="fr-h2">Logo du header</p>
+            {% include "ui/components/logo/header.html" %}
+            """,
+        )
+        return template.render(Context({}))
+
+    @component_docs("ui/components/accessibilite/P02_7_1__P02_7_3.md")
+    def P02_7_1__P02_7_3(self, **kwargs):
+        context = {
+            "self": {
+                "get_ancestors": [
+                    {"title": "Une première page", "is_site_root": True},
+                    {"title": "Une deuxième page", "is_root": False},
+                ],
+                "title": "Une troisième page",
+            },
+        }
+        return render_to_string(
+            "sites_conformes_content_manager/blocks/breadcrumbs.html",
+            context,
+        )
+
+    def fil_ariane_dans_heading_produit(self, **kwargs):
+        """
+        # Fil d'ariane dans le heading des pages produit (RGAA 12.2)
+
+        Le fil d'ariane manquait sur les pages produit Wagtail (`ProduitPage`,
+        `FamilyPage`). Il est désormais inclus en haut du `heading.html`.
+
+        Le composant utilisé est `sites_conformes_content_manager/blocks/breadcrumbs.html`,
+        avec l'override projet qui ajoute `href="#"` et `aria-current="page"` sur
+        le dernier élément (RGAA 7.1, 7.3).
+
+        Cf. carte Notion A11Y-3.
+        """
+        context = {
+            "self": {
+                "get_ancestors": [
+                    {"title": "Accueil", "is_site_root": True, "url": "/"},
+                    {
+                        "title": "Famille & Produits",
+                        "is_root": False,
+                        "url": "/categories/",
+                    },
+                ],
+                "title": "Vêtements",
+            },
+            "title": "vêtement",
+            "pronom": "mon",
+        }
+        return render_to_string(
+            "ui/components/produit/heading.html",
+            context,
+        )
+
+    def share_tooltip_acteur_sans_tabindex(self, **kwargs):
+        """
+        # Tooltip de partage de la fiche acteur sans tabindex="-1" (RGAA 7.3)
+
+        Les liens et le bouton du tooltip de partage de la fiche acteur,
+        sur la carte, ne portent plus `tabindex="-1"` : ils sont à nouveau
+        atteignables au clavier.
+
+        Pour rendre le tooltip visible dans la prévisualisation, le wrapper
+        `.fr-tooltip` est volontairement positionné statiquement.
+
+        Cf. carte Notion A11Y-9.
+        """
+        request = RequestFactory().get("/")
+        context = Context(
+            {
+                "object": "Mon acteur",
+                "map_container_id": DEFAULT_MAP_CONTAINER_ID,
+                "request": request,
+            }
+        )
+        template = Template(
+            """
+            {% load share_tags %}
+            <style>
+                .fr-tooltip { position: static !important; visibility: visible !important; opacity: 1 !important; max-width: 100%; }
+            </style>
+            {% include "ui/components/acteur/_action_share.html" %}
+            """,
+        )
+        return template.render(context)
+
+    def champs_facultatifs_marques(self, **kwargs):
+        """
+        # Champs facultatifs marqués « (Optional) » au lieu d'astérisques sur les obligatoires (RGAA 11.10)
+
+        Avec `DSFR_MARK_OPTIONAL_FIELDS=True` (cf. `webapp/core/settings.py`),
+        les formulaires Wagtail/Sites Conformes rendus via `{% dsfr_form_field %}`
+        n'ajoutent plus d'astérisque sur les champs obligatoires : ce sont les
+        champs facultatifs qui sont annotés.
+
+        Suivi de la recommandation DSFR :
+        https://www.systeme-de-design.gouv.fr/version-courante/fr/modeles/blocs-fonctionnels/formulaires#champ-obligatoire
+
+        Cf. carte Notion A11Y-6.
+        """
+
+        class _DemoForm(DsfrBaseForm):
+            nom = forms.CharField(label="Votre nom")
+            email = forms.EmailField(label="Votre email")
+            telephone = forms.CharField(label="Votre téléphone", required=False)
+            message = forms.CharField(
+                label="Votre message", widget=forms.Textarea(attrs={"rows": 4})
+            )
+
+        template = Template(
+            """
+            <form>{{ form }}</form>
+            """,
+        )
+        return template.render(Context({"form": _DemoForm()}))
+
+    def no_local_solution_role_status(self, **kwargs):
+        """
+        # Message « pas de solution localisée » avec `role="status"` (RGAA 7.5)
+
+        Le disclaimer affiché lorsqu'une recherche carte n'aboutit pas dans
+        la zone est annoncé par les technologies d'assistance grâce à
+        `role="status"` (équivalent `aria-live="polite"`).
+
+        Cf. carte Notion A11Y-10.
+        """
+        return render_to_string(
+            "ui/components/carte/shared/disclaimers/no_local_solution.html",
+            {"is_carte": False, "bounding_box": False},
+        )
+
+    def A11Y_2_skip_link(self, **kwargs):
+        """RGAA 12.7 — lien d'évitement (skip link) sur le layout base.html.
+
+        Le composant DSFR `dsfr_skiplinks` est désormais rendu dans
+        `webapp/templates/ui/layout/base.html` (carte, configurateur,
+        infotri). Le `<main>` du layout porte `id="content"` et
+        `role="main"`, ce qui correspond à la cible définie dans le
+        context processor global.
+        """
+        return render_to_string(
+            "ui/components/accessibilite/skip_link_demo.html",
+            {"skiplinks": [{"link": "#content", "label": "Contenu"}]},
+        )
+
+    def A11Y_1_aria_landmarks(self, **kwargs):
+        """RGAA 9.2 / 12.6 — landmarks ARIA banner / main / navigation.
+
+        Démontre les corrections : `<main>` unique avec `role="main"`,
+        `<header role="banner">` sur les en-têtes carte/formulaire,
+        `<nav aria-label>` autour du surfooter, et conversion en
+        `<section aria-label>` des `<main>` imbriqués (mode_carte,
+        mode_liste, formulaire/main, infotri).
+        """
+        return render_to_string(
+            "ui/components/accessibilite/landmarks_demo.html",
+        )
+
+    def A11Y_8_iframe_titres(self, **kwargs):
+        """RGAA 2.2 — titres d'iframes distincts par route.
+
+        Le helper `resolveIframeTitle` (iframe_functions.ts) attribue
+        désormais un titre par défaut différent selon la route :
+        carte, formulaire, infotri, assistant. Les embedders peuvent
+        surcharger via l'attribut `data-title` du `<script>`, utile
+        notamment sur la page Manteau (P09) qui embarque deux cartes.
+        """
+        return render_to_string(
+            "ui/components/accessibilite/iframe_titles_demo.html",
+        )
+
+    def A11Y_11_svg_decoratifs(self, **kwargs):
+        """RGAA 1.2 — SVG décoratifs marqués aria-hidden=true.
+
+        Les SVG logos (République Française, ADEME, QFDMOD mini), le
+        SVG ADEME inline du header et l'illustration empty state de la
+        carte mode liste portent maintenant `aria-hidden="true"
+        focusable="false"`, conformément aux recommandations RGAA 1.2
+        sur les images sans valeur informative.
+        """
+        return render_to_string(
+            "ui/components/accessibilite/svg_decoratifs_demo.html",
+        )
+
+    def A11Y_13_liens_explicites(self, **kwargs):
+        """RGAA 6.1 — intitulés de liens explicites.
+
+        Deux corrections :
+        1. Le lien des logos du header reçoit un `<span class="qf-sr-only">`
+           reprenant le `title` (« Accueil — ... »), pour fournir un
+           contenu textuel accessible aux lecteurs d'écran.
+        2. Le lien « disponible librement » de la modale d'intégration
+           voit son `title` réécrit pour reprendre l'intitulé visible.
+        """
+        return render_to_string(
+            "ui/components/accessibilite/liens_explicites_demo.html",
+        )
+
+
+class TestsPreview(LookbookPreview):
+    """
+    Test previews for e2e tests.
+
+    Naming convention:
+    - Prefix all methods with t_{number}_ where number is incremental (t_1_, t_2_, t_3_, etc.)
+    - The number represents the chronological order of test creation
+    - Oldest tests have lower numbers and appear first in the class
+    - When adding a new test, use the next available number and add it at the bottom
+    - Keep methods ordered by their number prefix for easy navigation
+
+    Example: t_1_referrer, t_2_carte_mode_liste_switch, t_3_ess_label_display
+
+    Adding a new test:
+    1. Create a dedicated template in templates/ui/tests/ (e.g., my_new_test.html)
+    2. Add a preview method here following the naming convention (e.g., t_4_my_new_test)
+    3. Create the corresponding e2e test in e2e_tests/ (usually in carte.spec.ts or dedicated file)
+    4. In the e2e test, navigate to /lookbook/preview/tests/t_4_my_new_test
+
+    Each test should be self-contained with its own template and e2e test specification.
+    """
+
+    @register_form_class(ReferrerTestForm)
+    def t_1_referrer(self, script_type="carte", **kwargs):
+        template_map = {
+            "carte": "ui/tests/t_1_referrer_carte.html",
+            "assistant": "ui/tests/t_1_referrer_assistant.html",
+        }
+        template = template_map.get(script_type, "ui/tests/t_1_referrer_carte.html")
+        return render_to_string(template, {"base_url": base_url})
+
+    def t_2_carte_mode_liste_switch(self, **kwargs):
+        """Test switching between carte and liste modes with bounding box"""
+        return render_to_string(
+            "ui/tests/carte_mode_liste_switch.html",
+            {"base_url": base_url},
+        )
+
+    def t_3_ess_label_display(self, **kwargs):
+        """Test ESS label display in acteur detail panel"""
+        return render_to_string(
+            "ui/tests/ess_label_display.html",
+            {"base_url": base_url},
+        )
+
+    def t_4_legend_filters_persistence(self, **kwargs):
+        """Test legend filters persistence when switching between carte and liste modes"""
+        return render_to_string(
+            "ui/tests/legend_filters_persistence.html",
+        )
+
+    def t_5_rechercher_dans_zone(self, **kwargs):
+        """Test search in zone button appearance and bounding box update"""
+        return render_to_string(
+            "ui/tests/search_in_zone_button.html",
+            {"base_url": base_url},
+        )
+
+    def t_6_carte_config_bounding_box(self, **kwargs):
+        """Test that bounding box from CarteConfig is correctly applied on initial load"""
+        from django.contrib.gis.geos import Polygon
+        from django.urls import reverse
+
+        # Create a test CarteConfig with a bounding box
+        # This bounding box covers Auray Quiberon Terre Atlantique EPCI (200043123)
+        # Southwest: lat=47.323994, lng=-3.210132
+        # Northeast: lat=47.866059, lng=-2.834623
+        bounding_box_polygon = Polygon.from_bbox(
+            (-3.210132, 47.323994, -2.834623, 47.866059)
+        )
+
+        carte_config, created = CarteConfig.objects.update_or_create(
+            slug="test-bounding-box",
+            defaults={
+                "nom": "Test Bounding Box",
+                "bounding_box": bounding_box_polygon,
+                "test": True,
+            },
+        )
+
+        carte_config_url = reverse(
+            "qfdmo:carte_custom", kwargs={"slug": "test-bounding-box"}
+        )
+
+        return render_to_string(
+            "ui/tests/carte_config_bounding_box.html",
+            {
+                "carte_config_url": carte_config_url,
+            },
+        )
+
+    def t_7_copy_controller(self, **kwargs):
+        """Test copy controller functionality with clipboard and button text updates"""
+        return render_to_string(
+            "ui/tests/copy_controller.html",
+        )
+
+    def t_8_iframe_navigation_persistence(self, **kwargs):
+        """Test that iframe-specific UI persists during navigation"""
+        return render_to_string(
+            "ui/tests/iframe_navigation_persistence.html",
+            {"base_url": base_url},
+        )
+
+    @register_form_class(BonusForm)
+    def t_9_bonus_legacy_parameter_iframe(self, bonus="1", **kwargs):
+        """Test that legacy bonus=1 parameter in iframe URL initializes the bonus filter as checked"""
+        return render_to_string(
+            "ui/tests/t_9_bonus_legacy_parameter_iframe.html",
+            {"bonus": bonus},
+        )
+
+    @register_form_class(BonusForm)
+    def t_10_bonus_legacy_parameter_script(self, bonus="1", **kwargs):
+        """Test that legacy data-bonus='1' via script initializes the bonus filter as checked"""
+        return render_to_string(
+            "ui/tests/t_10_bonus_legacy_parameter_script.html",
+            {"base_url": base_url, "bonus": bonus},
+        )
+
+    def t_11_cacher_filtre_objet(self, **kwargs):
+        """Test that CarteConfig with cacher_filtre_objet=True hides the object filter"""
+        # Create or update test CarteConfig with cacher_filtre_objet=True
+        carte_config, created = CarteConfig.objects.update_or_create(
+            slug="test-cacher-filtre-objet",
+            defaults={
+                "nom": "Test Cacher Filtre Objet",
+                "cacher_filtre_objet": True,
+                "test": True,
+            },
+        )
+
+        script = f'<script src="{base_url}/static/carte.js" data-slug="{carte_config.slug}"></script>'
+
+        return render_to_string(
+            "ui/tests/t_11_cacher_filtre_objet.html",
+            {"script": script},
+        )
+
+    def t_12_default_filtre_objet(self, **kwargs):
+        """Test that default CarteConfig shows the object filter"""
+        script = f'<script src="{base_url}/static/carte.js"></script>'
+
+        return render_to_string(
+            "ui/tests/t_12_default_filtre_objet.html",
+            {"script": script},
+        )
+
+    def t_13_itineraire_button_carte_sur_mesure(self, **kwargs):
+        """Test that itinéraire button is visible in carte sur mesure with correct coordinates"""
+        # Use cyclevia as an existing carte sur mesure
+        script = f'<script src="{base_url}/static/carte.js" data-slug="carte-reemploi-ess"></script>'
+
+        return render_to_string(
+            "ui/tests/t_13_itineraire_button_carte_sur_mesure.html",
+            {"script": script},
+        )
+
+    @register_form_class(CarteCentreeForm)
+    def t_14_carte_mal_centree(self, mode="epci", **kwargs):
+        """Test that carte is centered correctly without showing home pinpoint"""
+        if mode == "epci":
+            script = (
+                f"<script src='{base_url}/static/carte.js' "
+                "data-action_list='preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre' "
+                "data-epci_codes='200043123'></script>"
+            )
+        else:
+            script = (
+                f"<script src='{base_url}/static/carte.js' "
+                "data-action_list='preter|emprunter|louer|mettreenlocation|reparer|donner|echanger|acheter|revendre' "
+                'data-bounding_box=\'{"southWest": {"lat": 47.4, "lng": -3.3}, "northEast": {"lat": 47.75, "lng": -2.8}}\'></script>'
+            )
+        return render_to_string(
+            "ui/tests/t_14_carte_mal_centree.html",
+            {"script": script},
+        )
+
+    def t_15_acteur_fiche_viewport(self, **kwargs):
+        """Test that acteur fiche is visible in viewport without scrolling on mobile"""
+        return render_to_string(
+            "ui/tests/t_15_acteur_fiche_viewport.html",
+            {"base_url": base_url},
+        )
+
+    def t_16_infotri_configurator(self, **kwargs):
+        """Test that the infotri configurator generates a script tag with a valid src URL"""
+        return render_to_string(
+            "ui/tests/t_16_infotri_configurator.html",
+        )
+
+    def t_17_iframe_page_viewed(self, **kwargs):
+        """Test that the iframe_page_viewed PostHog event fires on hover/touch inside an iframe"""
+        return render_to_string(
+            "ui/tests/t_17_iframe_page_viewed.html",
+            {"base_url": base_url},
+        )
+
+    def t_18_iframe_page_properties(self, **kwargs):
+        """Test that iframe events include correct pageType and pageSlug for each iframe type"""
+        slug = (
+            CarteConfig.objects.exclude(test=True)
+            .values_list("slug", flat=True)
+            .first()
+            or "angers-site-vitrine"
+        )
+        return render_to_string(
+            "ui/tests/t_18_iframe_page_properties.html",
+            {"base_url": base_url, "slug": slug},
+        )

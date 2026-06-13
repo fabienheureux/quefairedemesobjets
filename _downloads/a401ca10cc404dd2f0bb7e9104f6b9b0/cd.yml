@@ -1,0 +1,75 @@
+name: 🌚 CD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  ci:
+    name: 🤖 CI
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit #pragma: allowlist secret
+
+  webapp:
+    name: 🟠 Webapp
+    uses: ./.github/workflows/_deploy-webapp.yml
+    secrets: inherit # pragma: allowlist secret`
+    needs: [ci]
+    with:
+      environment: preprod
+
+  airflow:
+    name: 🟠 Airflow
+    uses: ./.github/workflows/_deploy-airflow.yml
+    secrets: inherit # pragma: allowlist secret`
+    needs: [ci]
+    with:
+      environment: preprod
+      tag_name: ${{ github.sha }}
+
+  e2e:
+    name: 🪤 E2E
+    uses: ./.github/workflows/e2e.yml
+    secrets: inherit #pragma: allowlist secret
+
+  update_release_draft:
+    # Uncomment when anchor are supported in GitHub Actions
+    # See : https://github.com/actions/runner/issues/1182
+    # <<: *release_drafter
+    needs: [webapp]
+    permissions:
+      contents: write
+    runs-on: ubuntu-slim
+    name: 🔢 Release
+    steps:
+      - uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449 # v7.3.1
+        id: release-drafter
+        with:
+          config-name: release-config.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    if: ${{ !contains( github.ref_name, 'hotfix') }}
+    outputs:
+      tag_name: ${{ steps.release-drafter.outputs.tag_name }}
+
+  # Hotfix-only release draft update
+  update_release_draft_for_hotfix:
+    # Uncomment when anchor are supported in GitHub Actions
+    # See : https://github.com/actions/runner/issues/1182
+    # <<: *release_drafter
+    permissions:
+      contents: write
+    runs-on: ubuntu-slim
+    name: 🔢 Release Hotfix
+    steps:
+      - uses: release-drafter/release-drafter@693d20e7c1ce1a81d3a41962f85914253b518449 # v7.3.1
+        with:
+          config-name: release-config.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    if: ${{ contains( github.ref_name, 'hotfix') }}

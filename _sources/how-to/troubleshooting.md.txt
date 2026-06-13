@@ -1,0 +1,289 @@
+# ☎️ 3615 jaidesproblemes
+
+Une liste de solutions à des situations fréquentes qui peuvent se produire en local, en staging, en prod...
+
+## git
+
+### En cas de conflits sur `.secrets.baseline`
+
+```bash
+# installer detect-secrets s'il n'est pas présent dans l'environnement virtuel
+# ou en local
+uv add detect-secrets
+# re-générer .secrets.baseline
+uv run detect-secrets scan > .secrets.baseline
+# ajout au rebase en cours
+git add .secrets.baseline
+# continuer le rebase si aucun autre conflit n'est présent
+git rebase --continue
+```
+
+### En cas de conflits sur `uv.lock`
+
+```bash
+# ou avec uv
+rm uv.lock
+uv lock
+git add uv.lock
+
+# si c'est pendant un rebase...
+git rebase --continue
+```
+
+## Mise en place du poste developpeur
+
+### Je n'arrive pas a accéder à l'interface via une url \*.local
+
+L'interface sur un poste développeur doit-être accessible via les URLs:
+
+- http://quefairedemesdechets.ademe.local/
+- http://quefairedemesobjets.ademe.local/
+- http://lvao.ademe.local/ : redirigé vers le site institutionnel
+
+Si tel n'est pas le cas, voici quelques configuration à vérifier
+
+#### /etc/hosts
+
+Dans la configuration `/etc/hosts`, vérifier la présence des lignes
+
+```
+127.0.0.1       lvao.ademe.local
+127.0.0.1       quefairedemesdechets.ademe.local
+127.0.0.1       quefairedemesobjets.ademe.local
+```
+
+#### Vérifier la présence des certificats ssl
+
+Si les certificats ne sont pas présents, les logs du serveur nginx affichent une erreur type
+
+```
+lvao-proxy-1  | 2025/05/20 10:47:25 [emerg] 1#1: cannot load certificate "/etc/nginx/ssl/lvao.ademe.local+1.pem": BIO_new_file() failed (SSL: error:80000002:system library::No such file or directory:calling fopen(/etc/nginx/ssl/lvao.ademe.local+1.pem, r) error:10000080:BIO routines::no such file)
+```
+
+Dans ce cas, (re-)générer les certificats
+
+```
+make init-certs
+```
+
+#### .env
+
+Enfin, vérifier les variables d'environnement en prenant exemple sur le fichier `.env.template`
+
+## Stack data, airflow, dbt
+
+En local, il peut s'avérer complexe de développer sur la stack data, du fait du volume de données, mais aussi de l'enchaînement de tâches dans les DAGs.
+
+### Erreur "Signature verification failed" en boucle dans les logs du scheduler
+
+Si vous voyez l'erreur suivante en boucle dans les logs du scheduler :
+
+```
+[warning  ] The signature of the request was wrong [airflow.utils.serve_logs.log_server]
+jwt.exceptions.InvalidSignatureError: Signature verification failed
+```
+
+Cela signifie que la clé secrète JWT pour valider les tokens d'accès aux logs est incorrecte ou manquante.
+
+**Solution** :
+
+1. Générer une nouvelle clé secrète avec `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`
+
+2. Remplacer la clé dans `data-platform/dags/.env` en localisant la ligne `AIRFLOW__API_AUTH__JWT_SECRET` et en la remplaçant avec la clé générée
+
+3. Redémarrer Airflow avec `docker-compose --profile airflow down` puis `docker-compose --profile airflow up -d`
+
+### Visualiser les logs d'un DAG en échec
+
+Si un dag échoue, il peut être utile de visualiser ses logs.
+Pour ce faire,
+
+1. cliquer sur la tâche échouée (`failed`)
+2. cliquer dans l'onglet `Logs`
+3. cliquer sur `see more`
+   ![./_medias/troubleshooting-1.png]()
+
+Cela va amener à une vue détaillée des logs du DAG échuoée
+
+### Rejouer une tâche `dbt` d'un DAG
+
+DBT est utilisé pour transformer les données en base de données.
+En visualisant les logs d'une tâche en échec, on peut retrouver la commande `dbt` utilisée pour executer cette tâche. En général cela se situe tout en haut des logs
+
+```
+[2025-07-09, 06:53:26 UTC] {local_task_job_runner.py:123} ▶ Pre task execution logs
+[2025-07-09, 06:53:26 UTC] {subprocess.py:78} INFO - Tmp dir root location: /tmp
+[2025-07-09, 06:53:26 UTC] {subprocess.py:88} INFO - Running command: ['/usr/bin/bash', '-c', 'dbt run --models intermediate.acteurs']
+[2025-07-09, 06:53:26 UTC] {subprocess.py:99} INFO - Output:
+[2025-07-09, 06:53:28 UTC] {subprocess.py:106} INFO - 06:53:28  Running with dbt=1.10.2
+```
+
+Ici, `dbt run --models intermediate.acteurs`
+
+En supposant que vous avez une stack airflow en local, vous pouvez recopier cette commande dans le conteneur `airflow-scheduler` :
+
+```sh
+# depuis la racine du repo, où le fichier docker-compose.yml se situe
+docker compose exec airflow-scheduler dbt run --models intermediate.acteurs
+```
+
+Ainsi, vous pouvez désormais effectuer toutes les modifications de code souhaitées dans vos modèles avant de rejouer cette tâche.
+
+## Créer un utilisateur sur Airflow sans accès à la UI
+
+Il est possible de créer un user directement depuis `psql`, pour ce faire
+
+1. Générer un mot de passe en utilisant `werkzeug` utilisé par Airflow
+
+```py
+# Depuis un shell python, par exemple uv run python
+from werkzeug.security import generate_password_hash
+
+print(generate_password_hash('your_password'))
+# Retourne une string ressemblant à pbkdf2:sha256:260000$abc123$...
+```
+
+2. Insérer le nouvel utilisateur dans la table `ab_user`
+
+Récupérer la commande de connexion depuis le dashboard Scaleway (dans notre cas):
+
+```sh
+psql -h databae_host_name -p 5432 -U user -d airflow_database`
+```
+
+Executer le `SQL` ci-dessous
+
+```sql
+INSERT INTO ab_user (
+    id, first_name, last_name, username, password, email, active
+) VALUES (
+    1000, 'Admin', 'User', 'admin', 'pbkdf2:sha256:260000$abc123$...', 'admin@example.com', true
+);
+```
+
+À noter : assurez vous que 1000 n'est pas déjà utilisé. Il est possible de récupérer l'ID le plus haut avec la commande
+
+```sql
+SELECT MAX(id) FROM ab_user;
+```
+
+3. Assigner le rôle `Admin`
+
+Commencez par trouver l'ID du rôle `Admin`
+
+```sql
+SELECT id FROM ab_role WHERE name = 'Admin';
+```
+
+En supposant que l'ID soit `1`, l'insérer dans la table de lien
+
+```sql
+INSERT INTO ab_user_role (user_id, role_id) VALUES (1000, 1);
+```
+
+BONUS : avec un accès au CLI Airflow, c'est quand même beaucoup plus simple :
+
+```sh
+airflow users create \
+    --username admin \
+    --firstname Admin \
+    --lastname User \
+    --role Admin \
+    --email admin@example.com \
+    --password your_password
+```
+
+Malheureusement on a pas d'accès shell actuellement sur nos instances déployées dans Scaleway...
+
+## Inspecter une image docker
+
+Si une image docker ne démarre pas, par exemple si elle ne trouve pas ses librairies. il est possible de la construire et de la parcourrir avec les commandes suivantes:
+
+Build:
+
+```sh
+docker build --no-cache -f airflow-webserver.Dockerfile -t airflow-webserver .
+```
+
+Executer un shell sur l'image:
+
+```sh
+docker run --rm -it --user root --entrypoint /bin/bash airflow-webserver
+```
+
+Par exemple, nous avons eu un problème `airflow.providers.amazon Module not found` que nous avons investiguer de la manière suivante :
+
+```sh
+$> docker run --rm -it --user root --entrypoint /bin/bash airflow-webserver
+root@1274bcd93c28:/opt/airflow# python
+Python 3.12.12 (main, Nov 14 2025, 13:51:59) [GCC 12.2.0] on linux
+Type "help", "copyright", "credits" or "license" for more information.
+>>> import airflow.providers.amazon
+…
+```
+
+## Résoudre des problèmes de formatting dans `infrastructure`
+
+Dans la CI en cas d'erreur de fomatting OpenTofu lors de l'exécution de l table `Run Tofu format check`, appliquer le formatage des fichiers du dossier `infrastructure`
+
+```sh
+tofu fmt -recursive infrastructure
+```
+
+## Construire et pousser les images Docker vers Scaleway
+
+La CI/CD prend en charge le déploiement des versions de code, le déploiement est automatique selon la gestion des tags. Cependant, si quelques chose se passe mal, il est possible de déployer des images docker par la suite de commande ci-dessous.
+
+Pour construire et pousser les images Docker (airflow-scheduler et airflow-webserver) vers le registre Scaleway avec un tag spécifique :
+
+### Configuration du registre Scaleway
+
+#### Prérequis
+
+le CLI scaleway `scw` doit-être installé et connecté avec son compte.
+Si ce n'est pas le cas suivre [les instructions d'installation et initialisation](https://github.com/scaleway/scaleway-cli)
+
+#### Variables d'environnement
+
+```sh
+SCALEWAY_REGISTRY="rg.fr-par.scw.cloud"
+SCALEWAY_NAMESPACE="ns-qfdmo"
+TAG="hotfix-vX.Y.Z"
+SCALEWAY_DOCKER_SECRET=$(scw config get secret-key)
+```
+
+### 1. Connexion au registre Scaleway
+
+```sh
+echo $SCALEWAY_DOCKER_SECRET | docker login $SCALEWAY_REGISTRY -u nologin --password-stdin
+```
+
+### 2. Construction et push de l'image airflow-scheduler
+
+```sh
+docker build --platform=linux/amd64 -f ./data-platform/airflow-scheduler.Dockerfile -t $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-scheduler:$TAG .
+docker push $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-scheduler:$TAG
+```
+
+### 3. Construction et push de l'image airflow-webserver
+
+```sh
+docker build --platform=linux/amd64 -f ./data-platform/airflow-webserver.Dockerfile -t $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-webserver:$TAG .
+docker push $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-webserver:$TAG
+```
+
+### 4. Construction et push de l'image airflow-dag-processor
+
+```sh
+docker build --platform=linux/amd64 -f ./data-platform/airflow-dag-processor.Dockerfile -t $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-dag-processor:$TAG .
+docker push $SCALEWAY_REGISTRY/$SCALEWAY_NAMESPACE/airflow-dag-processor:$TAG
+```
+
+Les images seront disponibles aux adresses suivantes :
+
+- `rg.fr-par.scw.cloud/ns-qfdmo/airflow-scheduler:hotfix-vX.Y.Z`
+- `rg.fr-par.scw.cloud/ns-qfdmo/airflow-webserver:hotfix-vX.Y.Z`
+
+### 5. Déployer sur Scaleway
+
+À partir de `Serverless` > `Containers` > `Settings`, éditer l'image du container à utiliser et choisir le tag précédemment créé.
