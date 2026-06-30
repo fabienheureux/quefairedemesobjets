@@ -258,7 +258,7 @@ wheels = [
 
 [[package]]
 name = "apache-airflow-providers-amazon"
-version = "9.29.0"
+version = "9.31.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apache-airflow" },
@@ -277,9 +277,9 @@ dependencies = [
     { name = "sagemaker-studio" },
     { name = "watchtower" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/c6/841d89d2df7bbb14e0f61cdb0fec16e5758e03d13d17d66bf120eb9a4424/apache_airflow_providers_amazon-9.29.0.tar.gz", hash = "sha256:8ed3f4c67c502528e389fa0c2c6d6b67484e83227ab87d1670258eb365fcbed2", size = 2187069, upload-time = "2026-05-23T12:32:12.288Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/4d/21be2146f8fe0fa42fd14b0f5a4d81dbcbc180870556423825bfa961674f/apache_airflow_providers_amazon-9.31.0.tar.gz", hash = "sha256:97ed848df90fc04baec028c95a54f9bb573a282d4e9de1f6a203584fbd882fa7", size = 2214056, upload-time = "2026-06-22T19:59:30.703Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/bd/5f6766731c3dc4c04ad1b34dff3a440e84dbfa7c55fac9e4332e54f97abe/apache_airflow_providers_amazon-9.29.0-py3-none-any.whl", hash = "sha256:ecb06de499ad9c59a59133eb67d5d1e645af8ea32a9c95e2df64debb70842692", size = 736287, upload-time = "2026-05-23T12:31:04.182Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/8f/bec1116ca9eb94c7bc546c3fdd3065e7632a2f8589551be14be33ae8e7cf/apache_airflow_providers_amazon-9.31.0-py3-none-any.whl", hash = "sha256:a4427ce79b2897e45859067dc27648940ccbc082b18eb8494937a8ce29341fc8", size = 750204, upload-time = "2026-06-22T19:58:45.284Z" },
 ]
 
 [[package]]
@@ -898,7 +898,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "apache-airflow", specifier = ">=3.2.2,<4" },
-    { name = "apache-airflow-providers-amazon", specifier = ">=9.29.0" },
+    { name = "apache-airflow-providers-amazon", specifier = ">=9.31.0" },
     { name = "apache-airflow-providers-fab", specifier = ">=3.6.4" },
     { name = "apache-airflow-providers-postgres", specifier = ">=6.7.0,<7" },
     { name = "apache-airflow-providers-standard", specifier = ">=1.13.1" },
