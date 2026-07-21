@@ -401,15 +401,15 @@ wheels = [
 
 [[package]]
 name = "apache-airflow-providers-standard"
-version = "1.13.1"
+version = "1.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apache-airflow" },
     { name = "apache-airflow-providers-common-compat" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/b3/01355e33cb7419d79ef5132355c39e4f356281aaf85d0419599a62a57c1f/apache_airflow_providers_standard-1.13.1.tar.gz", hash = "sha256:e80161bd0271eb6dfb4c7bd1226dfe0254a76c8f488e4ede867805b5f5b1dec1", size = 210920, upload-time = "2026-05-23T12:32:56.809Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7c/ac/3c7c8e963ab3bc7a806302f43370b4de1372672b6370232f58505eef881c/apache_airflow_providers_standard-1.16.0.tar.gz", hash = "sha256:a48435726fdcb2328ffaaf7e582d195867b4bdcace8b221a46dd54067f89f577", size = 218230, upload-time = "2026-07-10T16:28:51.126Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/de/37/f89e550eec089a2070bfc2516b69df2c7262bd78d594e9b341a7c256efb8/apache_airflow_providers_standard-1.13.1-py3-none-any.whl", hash = "sha256:ba0a08f151cdae844b240485cfe7964ed40395fa38a84e7633f441261b07ae20", size = 158665, upload-time = "2026-05-23T12:32:01.32Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/b5/b946dfa600bc7668c44700eaf112901c093d68a54280fbb3d73e01a516f2/apache_airflow_providers_standard-1.16.0-py3-none-any.whl", hash = "sha256:840c4c7e61b94ad018f2527177454648548ebaac4da86858aa331629a1a7b408", size = 161286, upload-time = "2026-07-10T16:28:19.384Z" },
 ]
 
 [[package]]
@@ -901,7 +901,7 @@ requires-dist = [
     { name = "apache-airflow-providers-amazon", specifier = ">=9.29.0" },
     { name = "apache-airflow-providers-fab", specifier = ">=3.6.4" },
     { name = "apache-airflow-providers-postgres", specifier = ">=6.7.0,<7" },
-    { name = "apache-airflow-providers-standard", specifier = ">=1.13.1" },
+    { name = "apache-airflow-providers-standard", specifier = ">=1.16.0" },
     { name = "boto3", specifier = ">=1.43.21" },
     { name = "dbt-core", specifier = ">=1.11.11,<2" },
     { name = "dbt-postgres", specifier = ">=1.9.1,<2" },
