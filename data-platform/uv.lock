@@ -4318,14 +4318,14 @@ wheels = [
 
 [[package]]
 name = "wagtail-honeypot"
-version = "1.3.0"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "wagtail" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8f/ae/8216abb84142b2e4a3240ed5884297c4f4a167540cc41b777b9eb54d3283/wagtail_honeypot-1.3.0.tar.gz", hash = "sha256:fe580de264c01f871a40951c4761633fe9bab8b6dd9739aa176ef2ee4f96c493", size = 13933, upload-time = "2026-04-21T14:54:37.475Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/23/c7/d2a6130617ca2f1b0279ef80b93e034cc1b426b0d7b52ac1a3d76996bf5a/wagtail_honeypot-1.3.1.tar.gz", hash = "sha256:e09cbb99ef6e18b98a3c36b06d9c2b7bd357477af4470404146af55d567528ff", size = 14055, upload-time = "2026-07-16T11:45:41.405Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0a/05/f2e07ae5fb188402e5e7f6ea5ecdb96874a3c2e0dc3ad05124b138a36c6a/wagtail_honeypot-1.3.0-py3-none-any.whl", hash = "sha256:8816978b15bd77d2868e94fb3e64ea5339711260413e544f7bcdd9ff3fb565c4", size = 8629, upload-time = "2026-04-21T14:54:36.298Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/17/70dc2a8f118046a9d12f67ea8061de2fe78e4a9d9bfdb9f42345d9cc42a4/wagtail_honeypot-1.3.1-py3-none-any.whl", hash = "sha256:793f7bf91cdc8cf9b2516c4e6a274f939bfa94ef977fe031cabeef6c5e47cd91", size = 8670, upload-time = "2026-07-16T11:45:40.324Z" },
 ]
 
 [[package]]
@@ -4507,7 +4507,7 @@ requires-dist = [
     { name = "sites-conformes", specifier = "==3.1.1rc1" },
     { name = "unidecode", specifier = ">=1.4.0,<2" },
     { name = "wagtail", specifier = "==7.4.1" },
-    { name = "wagtail-honeypot", specifier = ">=1.3.0" },
+    { name = "wagtail-honeypot", specifier = ">=1.3.1" },
     { name = "wagtailmenus", specifier = ">=4.0.7" },
     { name = "whitenoise", specifier = ">=6.8.2,<7" },
 ]
